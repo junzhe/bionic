@@ -27,7 +27,7 @@
 #define _SYS_LIMITS_H_
 
 #include <sys/cdefs.h>
-#include <linux/limits.h>
+#include <minix/limits.h>
 
 /* Common definitions for limits.h. */
 
