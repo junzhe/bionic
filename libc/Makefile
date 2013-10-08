@@ -2,7 +2,7 @@
 NOGCCERROR:= yes
 
 LIB=    exec
-INCSDIR= /usr/include
+INCSDIR= /usr/include ${.CURDIR}/include ${.CURDIR}
 
 SUBDIR=unistd
 .include <bsd.subdir.mk>
