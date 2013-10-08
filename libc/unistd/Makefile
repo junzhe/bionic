@@ -3,11 +3,11 @@ NOGCCERROR:= yes
 
 LIB=    unistd
 
-CPPFLAGS+=      -I${.CURDIR}/../include -I${.CURDIR}/.. -I /usr/include/
-CPPFLAGS+=      -I${.CURDIR}/../arch/${ARCHSUBDIR} -I /usr/include/
+CPPFLAGS+=      -I${.CURDIR}/../include -I${.CURDIR}/.. -I${.CURDIR}/../arch-x86/include/
+CPPFLAGS+=      -I${.CURDIR}/../arch/${ARCHSUBDIR} -I${.CURDIR}/../arch-x86/include/
 
-CFLAGS+=      -I${.CURDIR}/../include -I${.CURDIR}/.. -I /usr/include/
-CFLAGS+=      -I${.CURDIR}/../arch/${ARCHSUBDIR} -I /usr/include/
+CFLAGS+=      -I${.CURDIR}/../include -I${.CURDIR}/.. -I${.CURDIR}/../arch-x86/include/
+CFLAGS+=      -I${.CURDIR}/../arch/${ARCHSUBDIR} -I${.CURDIR}/../arch-x86/include/
 
 INCS=   charclass.h
 SRCS=   alarm.c  exec.c fnmatch.c syslog.c system.c time.c
