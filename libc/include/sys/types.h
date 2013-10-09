@@ -32,9 +32,9 @@
 #include <stdint.h>
 #include <sys/cdefs.h>
 
-#include <linux/posix_types.h>
+#include <minix/posix_types.h>
 #include <asm/types.h>
-#include <linux/types.h>
+#include <minix/types.h>
 #include <machine/kernel.h>
 
 typedef __u32    __kernel_dev_t;
