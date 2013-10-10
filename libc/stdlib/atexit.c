@@ -1,175 +1,248 @@
-/*	$OpenBSD: atexit.c,v 1.14 2007/09/05 20:47:47 chl Exp $ */
-/*
- * Copyright (c) 2002 Daniel Hartmeier
+/*	$NetBSD: atexit.c,v 1.24 2009/10/08 16:33:45 pooka Exp $	*/
+
+/*-
+ * Copyright (c) 2003 The NetBSD Foundation, Inc.
  * All rights reserved.
+ *
+ * This code is derived from software contributed to The NetBSD Foundation
+ * by Jason R. Thorpe.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
  *
- *    - Redistributions of source code must retain the above copyright
- *      notice, this list of conditions and the following disclaimer.
- *    - Redistributions in binary form must reproduce the above
- *      copyright notice, this list of conditions and the following
- *      disclaimer in the documentation and/or other materials provided
- *      with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
- * FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
- * COPYRIGHT HOLDERS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
- * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
- * ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * THIS SOFTWARE IS PROVIDED BY THE NETBSD FOUNDATION, INC. AND CONTRIBUTORS
+ * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
+ * TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE FOUNDATION OR CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
- *
  */
 
-#include <sys/types.h>
-#include <sys/mman.h>
+#include <sys/cdefs.h>
+#if defined(LIBC_SCCS) && !defined(lint)
+__RCSID("$NetBSD: atexit.c,v 1.24 2009/10/08 16:33:45 pooka Exp $");
+#endif /* LIBC_SCCS and not lint */
+
+#include "reentrant.h"
+
+#include <assert.h>
 #include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
+
 #include "atexit.h"
-#include "thread_private.h"
 
-int __atexit_invalid = 1;
-struct atexit *__atexit;
+struct atexit_handler {
+	struct atexit_handler *ah_next;
+	union {
+		void (*fun_atexit)(void);
+		void (*fun_cxa_atexit)(void *);
+	} ah_fun;
+#define	ah_atexit	ah_fun.fun_atexit
+#define	ah_cxa_atexit	ah_fun.fun_cxa_atexit
+
+	void *ah_arg;	/* argument for cxa_atexit handlers */
+	void *ah_dso;	/* home DSO for cxa_atexit handlers */
+};
 
 /*
- * Function pointers are stored in a linked list of pages. The list
- * is initially empty, and pages are allocated on demand. The first
- * function pointer in the first allocated page (the last one in
- * the linked list) was reserved for the cleanup function.
- * TODO: switch to the regular FreeBSD/NetBSD atexit implementation.
- *
- * Outside the following functions, all pages are mprotect()'ed
- * to prevent unintentional/malicious corruption.
+ * There must be at least 32 to guarantee ANSI conformance, plus
+ * 3 additional ones for the benefit of the startup code, which
+ * may use them to register the dynamic loader's cleanup routine,
+ * the profiling cleanup routine, and the global destructor routine.
  */
+#define	NSTATIC_HANDLERS	(32 + 3)
+static struct atexit_handler atexit_handler0[NSTATIC_HANDLERS];
+
+#define	STATIC_HANDLER_P(ah)						\
+	(ah >= &atexit_handler0[0] && ah < &atexit_handler0[NSTATIC_HANDLERS])
 
 /*
- * Register a function to be performed at exit or when a shared object
- * with the given dso handle is unloaded dynamically.  Also used as
- * the backend for atexit().  For more info on this API, see:
+ * Stack of atexit handlers.  Handlers must be called in the opposite
+ * order they were registered.
+ */
+static struct atexit_handler *atexit_handler_stack;
+
+#ifdef _REENTRANT
+/* ..and a mutex to protect it all. */
+static mutex_t atexit_mutex;
+#endif /* _REENTRANT */
+
+void	__libc_atexit_init(void) __attribute__ ((visibility("hidden")));
+
+/*
+ * Allocate an atexit handler descriptor.  If "dso" is NULL, it indicates
+ * a normal atexit handler, which must be allocated from the static pool,
+ * if possible. cxa_atexit handlers are never allocated from the static
+ * pool.
+ *
+ * atexit_mutex must be held.
+ */
+static struct atexit_handler *
+atexit_handler_alloc(void *dso)
+{
+	struct atexit_handler *ah;
+	int i;
+
+	if (dso == NULL) {
+		for (i = 0; i < NSTATIC_HANDLERS; i++) {
+			ah = &atexit_handler0[i];
+			if (ah->ah_atexit == NULL && ah->ah_next == NULL) {
+				/* Slot is free. */
+				return (ah);
+			}
+		}
+	}
+
+	/*
+	 * Either no static slot was free, or this is a cxa_atexit
+	 * handler.  Allocate a new one.  We keep the atexit_mutex
+	 * held to prevent handlers from being run while we (potentially)
+	 * block in malloc().
+	 */
+	ah = malloc(sizeof(*ah));
+	return (ah);
+}
+
+/*
+ * Initialize atexit_mutex with the PTHREAD_MUTEX_RECURSIVE attribute.
+ * Note that __cxa_finalize may generate calls to __cxa_atexit.
+ */
+void
+__libc_atexit_init(void)
+{
+#ifdef _REENTRANT /* !__minix */
+	mutexattr_t atexit_mutex_attr;
+	mutexattr_init(&atexit_mutex_attr);
+	mutexattr_settype(&atexit_mutex_attr, PTHREAD_MUTEX_RECURSIVE);
+	mutex_init(&atexit_mutex, &atexit_mutex_attr);
+#endif /* _REENTRANT */
+}
+
+/*
+ * Register an atexit routine.  This is suitable either for a cxa_atexit
+ * or normal atexit type handler.  The __cxa_atexit() name and arguments
+ * are specified by the C++ ABI.  See:
  *
  *	http://www.codesourcery.com/cxx-abi/abi.html#dso-dtor
  */
 int
 __cxa_atexit(void (*func)(void *), void *arg, void *dso)
 {
-	struct atexit *p = __atexit;
-	struct atexit_fn *fnp;
-	int pgsize = getpagesize();
-	int ret = -1;
+	struct atexit_handler *ah;
 
-	if (pgsize < (int)sizeof(*p))
+	_DIAGASSERT(func != NULL);
+
+	mutex_lock(&atexit_mutex);
+
+	ah = atexit_handler_alloc(dso);
+	if (ah == NULL) {
+		mutex_unlock(&atexit_mutex);
 		return (-1);
-	_ATEXIT_LOCK();
-	p = __atexit;
-	if (p != NULL) {
-		if (p->ind + 1 >= p->max)
-			p = NULL;
-		else if (mprotect(p, pgsize, PROT_READ | PROT_WRITE))
-			goto unlock;
 	}
-	if (p == NULL) {
-		p = mmap(NULL, pgsize, PROT_READ | PROT_WRITE,
-		    MAP_ANON | MAP_PRIVATE, -1, 0);
-		if (p == MAP_FAILED)
-			goto unlock;
-		if (__atexit == NULL) {
-			memset(&p->fns[0], 0, sizeof(p->fns[0]));
-			p->ind = 1;
-		} else
-			p->ind = 0;
-		p->max = (pgsize - ((char *)&p->fns[0] - (char *)p)) /
-		    sizeof(p->fns[0]);
-		p->next = __atexit;
-		__atexit = p;
-		if (__atexit_invalid)
-			__atexit_invalid = 0;
-	}
-	fnp = &p->fns[p->ind++];
-	fnp->fn_ptr.cxa_func = func;
-	fnp->fn_arg = arg;
-	fnp->fn_dso = dso;
-	if (mprotect(p, pgsize, PROT_READ))
-		goto unlock;
-	ret = 0;
-unlock:
-	_ATEXIT_UNLOCK();
-	return (ret);
+
+	ah->ah_cxa_atexit = func;
+	ah->ah_arg = arg;
+	ah->ah_dso = dso;
+
+	ah->ah_next = atexit_handler_stack;
+	atexit_handler_stack = ah;
+
+	mutex_unlock(&atexit_mutex);
+	return (0);
 }
 
 /*
- * Call all handlers registered with __cxa_atexit() for the shared
- * object owning 'dso'.
- * Note: if 'dso' is NULL, then all remaining handlers are called.
+ * Run the list of atexit handlers.  If dso is NULL, run all of them,
+ * otherwise run only those matching the specified dso.
+ *
+ * Note that we can be recursively invoked; rtld cleanup is via an
+ * atexit handler, and rtld cleanup invokes _fini() for DSOs, which
+ * in turn invokes __cxa_finalize() for the DSO.
  */
 void
 __cxa_finalize(void *dso)
 {
-	struct atexit *p, *q;
-	struct atexit_fn fn;
-	int n, pgsize = getpagesize();
-	static int call_depth;
+	static u_int call_depth;
+	struct atexit_handler *ah, *dead_handlers = NULL, **prevp;
+	void (*cxa_func)(void *);
+	void (*atexit_func)(void);
 
-	if (__atexit_invalid)
-		return;
-
-	_ATEXIT_LOCK();
+	mutex_lock(&atexit_mutex);
 	call_depth++;
 
-	for (p = __atexit; p != NULL; p = p->next) {
-		for (n = p->ind; --n >= 0;) {
-			if (p->fns[n].fn_ptr.cxa_func == NULL)
-				continue;	/* already called */
-			if (dso != NULL && dso != p->fns[n].fn_dso)
-				continue;	/* wrong DSO */
-
-			/*
-			 * Mark handler as having been already called to avoid
-			 * dupes and loops, then call the appropriate function.
-			 */
-			fn = p->fns[n];
-			if (mprotect(p, pgsize, PROT_READ | PROT_WRITE) == 0) {
-				p->fns[n].fn_ptr.cxa_func = NULL;
-				mprotect(p, pgsize, PROT_READ);
+	/*
+	 * If we are at call depth 1 (which is usually the "do everything"
+	 * call from exit(3)), we go ahead and remove elements from the
+	 * list as we call them.  This will prevent any nested calls from
+	 * having to traverse elements we've already processed.  If we are
+	 * at call depth > 1, we simply mark elements we process as unused.
+	 * When the depth 1 caller sees those, it will simply unlink them
+	 * for us.
+	 */
+again:
+	for (prevp = &atexit_handler_stack; (ah = (*prevp)) != NULL;) {
+		if (dso == NULL || dso == ah->ah_dso || ah->ah_atexit == NULL) {
+			if (ah->ah_atexit != NULL) {
+				void *p = atexit_handler_stack;
+				if (ah->ah_dso != NULL) {
+					cxa_func = ah->ah_cxa_atexit;
+					ah->ah_cxa_atexit = NULL;
+					(*cxa_func)(ah->ah_arg);
+				} else {
+					atexit_func = ah->ah_atexit;
+					ah->ah_atexit = NULL;
+					(*atexit_func)();
+				}
+				/* Restart if new atexit handler was added. */
+				if (p != atexit_handler_stack)
+					goto again;
 			}
-			_ATEXIT_UNLOCK();
-#if ANDROID
-                        /* it looks like we should always call the function
-                         * with an argument, even if dso is not NULL. Otherwise
-                         * static destructors will not be called properly on
-                         * the ARM.
-                         */
-                        (*fn.fn_ptr.cxa_func)(fn.fn_arg);
-#else /* !ANDROID */
-			if (dso != NULL)
-				(*fn.fn_ptr.cxa_func)(fn.fn_arg);
-			else
-				(*fn.fn_ptr.std_func)();
-#endif /* !ANDROID */
-			_ATEXIT_LOCK();
-		}
+
+			if (call_depth == 1) {
+				*prevp = ah->ah_next;
+				if (STATIC_HANDLER_P(ah))
+					ah->ah_next = NULL;
+				else {
+					ah->ah_next = dead_handlers;
+					dead_handlers = ah;
+				}
+			} else
+				prevp = &ah->ah_next;
+		} else
+			prevp = &ah->ah_next;
 	}
+	call_depth--;
+	mutex_unlock(&atexit_mutex);
+
+	if (call_depth > 0)
+		return;
 
 	/*
-	 * If called via exit(), unmap the pages since we have now run
-	 * all the handlers.  We defer this until calldepth == 0 so that
-	 * we don't unmap things prematurely if called recursively.
+	 * Now free any dead handlers.  Do this even if we're about to
+	 * exit, in case a leak-detecting malloc is being used.
 	 */
-	if (dso == NULL && --call_depth == 0) {
-		for (p = __atexit; p != NULL; ) {
-			q = p;
-			p = p->next;
-			munmap(q, pgsize);
-		}
-		__atexit = NULL;
+	while ((ah = dead_handlers) != NULL) {
+		dead_handlers = ah->ah_next;
+		free(ah);
 	}
-	_ATEXIT_UNLOCK();
+}
+
+/*
+ * Register a function to be performed at exit.
+ */
+int
+atexit(void (*func)(void))
+{
+
+	return (__cxa_atexit((void (*)(void *))func, NULL, NULL));
 }
