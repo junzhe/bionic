@@ -1,4 +1,5 @@
-/*	$OpenBSD: getenv.c,v 1.8 2005/08/08 08:05:36 espie Exp $ */
+/*	$NetBSD: getenv.c,v 1.35 2010/11/14 22:04:36 tron Exp $	*/
+
 /*
  * Copyright (c) 1987, 1993
  *	The Regents of the University of California.  All rights reserved.
@@ -28,53 +29,85 @@
  * SUCH DAMAGE.
  */
 
+#include <sys/cdefs.h>
+#if defined(LIBC_SCCS) && !defined(lint)
+#if 0
+static char sccsid[] = "@(#)getenv.c	8.1 (Berkeley) 6/4/93";
+#else
+__RCSID("$NetBSD: getenv.c,v 1.35 2010/11/14 22:04:36 tron Exp $");
+#endif
+#endif /* LIBC_SCCS and not lint */
+
+#include "namespace.h"
+#include <assert.h>
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 
-char *__findenv(const char *name, int *offset);
+#include "env.h"
+#include "reentrant.h"
+#include "local.h"
 
-/*
- * __findenv --
- *	Returns pointer to value associated with name, if any, else NULL.
- *	Sets offset to be the offset of the name/value combination in the
- *	environmental array, for use by setenv(3) and unsetenv(3).
- *	Explicitly removes '=' in argument name.
- *
- *	This routine *should* be a static; don't use it.
- */
-char *
-__findenv(const char *name, int *offset)
-{
-	extern char **environ;
-	int len, i;
-	const char *np;
-	char **p, *cp;
-
-	if (name == NULL || environ == NULL)
-		return (NULL);
-	for (np = name; *np && *np != '='; ++np)
-		;
-	len = np - name;
-	for (p = environ; (cp = *p) != NULL; ++p) {
-		for (np = name, i = len; i && *cp; i--)
-			if (*cp++ != *np++)
-				break;
-		if (i == 0 && *cp++ == '=') {
-			*offset = p - environ;
-			return (cp);
-		}
-	}
-	return (NULL);
-}
+__weak_alias(getenv_r, _getenv_r)
 
 /*
  * getenv --
  *	Returns ptr to value associated with name, if any, else NULL.
+ *	XXX: we cannot use getenv_r to implement this, because getenv()
+ *	cannot use a shared buffer, because if it did, subsequent calls
+ *	to getenv would trash previous results.
  */
 char *
 getenv(const char *name)
 {
-	int offset;
+	size_t l_name;
+	char *result;
 
-	return (__findenv(name, &offset));
+	_DIAGASSERT(name != NULL);
+
+	l_name = __envvarnamelen(name, false);
+	if (l_name == 0)
+		return NULL;
+
+	result = NULL;
+	if (__readlockenv()) {
+		result = __findenvvar(name, l_name);
+		(void)__unlockenv();
+	}
+	
+	return result;
+}
+
+int
+getenv_r(const char *name, char *buf, size_t len)
+{
+	size_t l_name;
+	int rv;
+
+	_DIAGASSERT(name != NULL);
+
+	l_name = __envvarnamelen(name, false);
+	if (l_name == 0) {
+		errno = ENOENT;
+		return -1;
+	}
+
+	rv = -1;
+	if (__readlockenv()) {
+		const char *value;
+
+		value = __findenvvar(name, l_name);
+		if (value != NULL) {
+			if (strlcpy(buf, value, len) < len) {
+				rv = 0;
+			} else {
+				errno = ERANGE;
+			}
+		} else {
+			errno = ENOENT;
+		}
+		(void)__unlockenv();
+	}
+	
+	return rv;
 }

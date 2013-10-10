@@ -1,7 +1,8 @@
-/*	$OpenBSD: putenv.c,v 1.5 2005/08/08 08:05:37 espie Exp $ */
+/*	$NetBSD: putenv.c,v 1.19 2010/11/14 18:11:43 tron Exp $	*/
+
 /*-
  * Copyright (c) 1988, 1993
- *     The Regents of the University of California.  All rights reserved.
+ *	The Regents of the University of California.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,23 +29,62 @@
  * SUCH DAMAGE.
  */
 
+#include <sys/cdefs.h>
+#if defined(LIBC_SCCS) && !defined(lint)
+#if 0
+static char sccsid[] = "@(#)putenv.c	8.2 (Berkeley) 3/27/94";
+#else
+__RCSID("$NetBSD: putenv.c,v 1.19 2010/11/14 18:11:43 tron Exp $");
+#endif
+#endif /* LIBC_SCCS and not lint */
+
+#include "namespace.h"
+
+#include <assert.h>
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 
-int
-putenv(const char *str)
-{
-	char *p, *equal;
-	int rval;
+#include "env.h"
+#include "reentrant.h"
+#include "local.h"
 
-	if ((p = strdup(str)) == NULL)
-		return (-1);
-	if ((equal = strchr(p, '=')) == NULL) {
-		(void)free(p);
-		return (-1);
+#ifdef __weak_alias
+__weak_alias(putenv,_putenv)
+#if defined(__minix)
+__weak_alias(__putenv50,_putenv)
+#endif /* defined(__minix) */
+#endif
+
+int
+putenv(char *str)
+{
+	size_t l_name;
+	int rv;
+
+	_DIAGASSERT(str != NULL);
+
+	l_name = __envvarnamelen(str, true);
+	if (l_name == 0) {
+		errno = EINVAL;
+		return -1;
 	}
-	*equal = '\0';
-	rval = setenv(p, equal + 1, 1);
-	(void)free(p);
-	return (rval);
+
+	rv = -1;
+	if (__writelockenv()) {
+		ssize_t offset;
+
+		offset = __getenvslot(str, l_name, true);
+		if (offset != -1) {
+			if (environ[offset] != NULL)
+				__freeenvvar(environ[offset]);
+			environ[offset] = str;
+
+			rv = 0;
+		}
+
+		(void)__unlockenv();
+	}
+
+	return rv;
 }
