@@ -1,6 +1,8 @@
-/* $OpenBSD: strtoll.c,v 1.6 2005/11/10 10:00:17 espie Exp $ */
+/* $NetBSD: strtoll.c,v 1.6 2008/08/22 03:00:02 matt Exp $ */
+
 /*-
- * Copyright (c) 1992 The Regents of the University of California.
+ * Copyright (c) 2005 The DragonFly Project.  All rights reserved.
+ * Copyright (c) 2003 Citrus Project,
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -11,14 +13,11 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 3. Neither the name of the University nor the names of its contributors
- *    may be used to endorse or promote products derived from this software
- *    without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
  * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
  * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
  * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
@@ -28,23 +27,40 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/types.h>
+#if HAVE_NBTOOL_CONFIG_H
+#include "nbtool_config.h"
+#endif
 
+#include <sys/cdefs.h>
+__RCSID("$NetBSD: strtoll.c,v 1.6 2008/08/22 03:00:02 matt Exp $");
+
+#ifdef _LIBC
+#include "namespace.h"
+#endif
+
+#if defined(_KERNEL)
+#include <sys/param.h>
+#include <lib/libkern/libkern.h>
+#elif defined(_STANDALONE)
+#include <sys/param.h>
+#include <lib/libkern/libkern.h>
+#include <lib/libsa/stand.h>
+#else
+#include <assert.h>
 #include <ctype.h>
 #include <errno.h>
 #include <limits.h>
+#include <stdint.h>
 #include <stdlib.h>
-#include <inttypes.h>
+#endif
 
-/*
- * Convert a string to a long long.
- *
- * Ignores `locale' stuff.  Assumes that the upper and lower case
- * alphabets and digits are each contiguous.
- */
-long long
-strtoll(const char *nptr, char **endptr, int base)
-{
-    return strtoimax(nptr, endptr, base);
-}
+#define	_FUNCNAME	strtoll
+#define	__INT		long long
+#define	__INT_MIN	LLONG_MIN
+#define	__INT_MAX	LLONG_MAX
 
+#include "_strtol.h"
+
+#ifdef _LIBC
+__weak_alias(strtoll, _strtoll)
+#endif

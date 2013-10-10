@@ -1,7 +1,8 @@
-/*	$OpenBSD: setenv.c,v 1.9 2005/08/08 08:05:37 espie Exp $ */
+/*	$NetBSD: setenv.c,v 1.43 2010/11/14 18:11:43 tron Exp $	*/
+
 /*
- * Copyright (c) 1987 Regents of the University of California.
- * All rights reserved.
+ * Copyright (c) 1987, 1993
+ *	The Regents of the University of California.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,12 +29,29 @@
  * SUCH DAMAGE.
  */
 
+#include <sys/cdefs.h>
+#if defined(LIBC_SCCS) && !defined(lint)
+#if 0
+static char sccsid[] = "@(#)setenv.c	8.1 (Berkeley) 6/4/93";
+#else
+__RCSID("$NetBSD: setenv.c,v 1.43 2010/11/14 18:11:43 tron Exp $");
+#endif
+#endif /* LIBC_SCCS and not lint */
+
+#include "namespace.h"
+
+#include <assert.h>
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 
-char *__findenv(const char *name, int *offset);
+#include "env.h"
+#include "reentrant.h"
+#include "local.h"
 
-extern char **environ;
+#ifdef __weak_alias
+__weak_alias(setenv,_setenv)
+#endif
 
 /*
  * setenv --
@@ -43,63 +61,68 @@ extern char **environ;
 int
 setenv(const char *name, const char *value, int rewrite)
 {
-	static char **lastenv;			/* last value of environ */
-	char *C;
-	int l_value, offset;
+	size_t l_name, l_value, length;
+	ssize_t offset;
+	char *envvar;
 
-	if (*value == '=')			/* no `=' in value */
-		++value;
-	l_value = strlen(value);
-	if ((C = __findenv(name, &offset))) {	/* find if already exists */
-		if (!rewrite)
-			return (0);
-		if ((int)strlen(C) >= l_value) {	/* old larger; copy over */
-			while ((*C++ = *value++))
-				;
-			return (0);
-		}
-	} else {					/* create new slot */
-		size_t cnt;
-		char **P;
+	_DIAGASSERT(name != NULL);
+	_DIAGASSERT(value != NULL);
 
-		for (P = environ; *P != NULL; P++)
-			;
-		cnt = P - environ;
-        P = (char **)realloc(lastenv, sizeof(char *) * (cnt + 2));
-		if (!P)
-			return (-1);
-		if (lastenv != environ)
-			memcpy(P, environ, cnt * sizeof(char *));
-		lastenv = environ = P;
-		offset = cnt;
-		environ[cnt + 1] = NULL;
+	l_name = __envvarnamelen(name, false);
+	if (l_name == 0 || value == NULL) {
+		errno = EINVAL;
+		return -1;
 	}
-	for (C = (char *)name; *C && *C != '='; ++C)
-		;				/* no `=' in name */
-	if (!(environ[offset] =			/* name + `=' + value */
-	    malloc((size_t)((int)(C - name) + l_value + 2))))
-		return (-1);
-	for (C = environ[offset]; (*C = *name++) && *C != '='; ++C)
-		;
-	for (*C++ = '='; (*C++ = *value++); )
-		;
-	return (0);
-}
 
-/*
- * unsetenv(name) --
- *	Delete environmental variable "name".
- */
-int
-unsetenv(const char *name)
-{
-	char **P;
-	int offset;
+	if (!__writelockenv())
+		return -1;
 
-	while (__findenv(name, &offset))	/* if set multiple times */
-		for (P = &environ[offset];; ++P)
-			if (!(*P = *(P + 1)))
-				break;
+	/* Find slot in the enviroment. */
+	offset = __getenvslot(name, l_name, true);
+	if (offset == -1)
+		goto bad;
 
-        return 0;
+	l_value = strlen(value);
+	length = l_name + l_value + 2;
+
+	/* Handle overwriting a current environt variable. */
+	envvar = environ[offset];
+	if (envvar != NULL) {
+		if (!rewrite)
+			goto good;
+		/*
+		 * Check whether the buffer was allocated via setenv(3) and
+		 * whether there is enough space. If so simply overwrite the
+		 * existing value.
+		 */
+		if (__canoverwriteenvvar(envvar, length)) {
+			envvar += l_name + 1;
+			goto copy;
+		}
+	}
+
+	/* Allocate memory for name + `=' + value + NUL. */
+	if ((envvar = __allocenvvar(length)) == NULL)
+		goto bad;
+
+	if (environ[offset] != NULL)
+		__freeenvvar(environ[offset]);
+
+	environ[offset] = envvar;
+
+	(void)memcpy(envvar, name, l_name);
+
+	envvar += l_name;
+	*envvar++ = '=';
+
+copy:
+	(void)memcpy(envvar, value, l_value + 1);
+
+good:
+	(void)__unlockenv();
+	return 0;
+
+bad:
+	(void)__unlockenv();
+	return -1;
 }
