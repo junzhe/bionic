@@ -1,4 +1,5 @@
-/*	$OpenBSD: syslog.c,v 1.28 2005/08/08 08:05:34 espie Exp $ */
+/*	$NetBSD: syslog.c,v 1.53 2012/10/11 17:09:55 christos Exp $	*/
+
 /*
  * Copyright (c) 1983, 1988, 1993
  *	The Regents of the University of California.  All rights reserved.
@@ -28,28 +29,63 @@
  * SUCH DAMAGE.
  */
 
+#include <sys/cdefs.h>
+#if defined(LIBC_SCCS) && !defined(lint)
+#if 0
+static char sccsid[] = "@(#)syslog.c	8.5 (Berkeley) 4/29/95";
+#else
+__RCSID("$NetBSD: syslog.c,v 1.53 2012/10/11 17:09:55 christos Exp $");
+#endif
+#endif /* LIBC_SCCS and not lint */
+
+#include "namespace.h"
 #include <sys/types.h>
+#include <sys/param.h>
 #include <sys/socket.h>
+#include <sys/syslog.h>
 #include <sys/uio.h>
-#include <syslog.h>
 #include <sys/un.h>
 #include <netdb.h>
 
 #include <errno.h>
 #include <fcntl.h>
 #include <paths.h>
+#include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
-#include <stdarg.h>
+#include "reentrant.h"
+#include "extern.h"
+
+#ifdef __minix
+#include <sys/ioctl.h>
+#endif
+
+#ifdef __weak_alias
+__weak_alias(closelog,_closelog)
+__weak_alias(openlog,_openlog)
+__weak_alias(setlogmask,_setlogmask)
+__weak_alias(syslog,_syslog)
+__weak_alias(vsyslog,_vsyslog)
+__weak_alias(syslogp,_syslogp)
+__weak_alias(vsyslogp,_vsyslogp)
+#endif
 
 static struct syslog_data sdata = SYSLOG_DATA_INIT;
 
-extern const char	*__progname;		/* Program name, from crt0. */
+static void	openlog_unlocked_r(const char *, int, int,
+    struct syslog_data *);
+static void	disconnectlog_r(struct syslog_data *);
+static void	connectlog_r(struct syslog_data *);
 
-static void	disconnectlog_r(struct syslog_data *);	/* disconnect from syslogd */
-static void	connectlog_r(struct syslog_data *);	/* (re)connect to syslogd */
+#define LOG_SIGNAL_SAFE	(int)0x80000000
+
+
+#ifdef _REENTRANT
+static mutex_t	syslog_mutex = MUTEX_INITIALIZER;
+#endif
 
 /*
  * syslog, vsyslog --
@@ -69,6 +105,26 @@ void
 vsyslog(int pri, const char *fmt, va_list ap)
 {
 	vsyslog_r(pri, &sdata, fmt, ap);
+}
+
+/*
+ * syslogp, vsyslogp --
+ *	like syslog but take additional arguments for MSGID and SD
+ */
+void
+syslogp(int pri, const char *msgid, const char *sdfmt, const char *msgfmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, msgfmt);
+	vsyslogp(pri, msgid, sdfmt, msgfmt, ap);
+	va_end(ap);
+}
+
+void
+vsyslogp(int pri, const char *msgid, const char *sdfmt, const char *msgfmt, va_list ap)
+{
+	vsyslogp_r(pri, &sdata, msgid, sdfmt, msgfmt, ap);
 }
 
 void
@@ -103,27 +159,86 @@ syslog_r(int pri, struct syslog_data *data, const char *fmt, ...)
 }
 
 void
+syslogp_r(int pri, struct syslog_data *data, const char *msgid,
+	const char *sdfmt, const char *msgfmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, msgfmt);
+	vsyslogp_r(pri, data, msgid, sdfmt, msgfmt, ap);
+	va_end(ap);
+}
+
+void
+syslog_ss(int pri, struct syslog_data *data, const char *fmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	vsyslog_r(pri | LOG_SIGNAL_SAFE, data, fmt, ap);
+	va_end(ap);
+}
+
+void
+syslogp_ss(int pri, struct syslog_data *data, const char *msgid,
+	const char *sdfmt, const char *msgfmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, msgfmt);
+	vsyslogp_r(pri | LOG_SIGNAL_SAFE, data, msgid, sdfmt, msgfmt, ap);
+	va_end(ap);
+}
+
+void
+vsyslog_ss(int pri, struct syslog_data *data, const char *fmt, va_list ap)
+{
+	vsyslog_r(pri | LOG_SIGNAL_SAFE, data, fmt, ap);
+}
+
+void
+vsyslogp_ss(int pri, struct syslog_data *data, const char *msgid,
+	const char *sdfmt, const char *msgfmt, va_list ap)
+{
+	vsyslogp_r(pri | LOG_SIGNAL_SAFE, data, msgid, sdfmt, msgfmt, ap);
+}
+
+
+void
 vsyslog_r(int pri, struct syslog_data *data, const char *fmt, va_list ap)
 {
-	int cnt;
-	char ch, *p, *t;
-	time_t now;
-	int fd, saved_errno, error;
-#define	TBUF_LEN	2048
-#define	FMT_LEN		1024
-	char *stdp = NULL, tbuf[TBUF_LEN], fmt_cpy[FMT_LEN];
-	int tbuf_left, fmt_left, prlen;
+	vsyslogp_r(pri, data, NULL, NULL, fmt, ap);
+}
 
-#define	INTERNALLOG	LOG_ERR|LOG_CONS|LOG_PERROR|LOG_PID
+void
+vsyslogp_r(int pri, struct syslog_data *data, const char *msgid,
+	const char *sdfmt, const char *msgfmt, va_list ap)
+{
+	static const char BRCOSP[] = "]: ";
+	static const char CRLF[] = "\r\n";
+	size_t cnt, prlen, tries;
+	char ch, *p, *t;
+	struct timeval tv;
+	struct tm tmnow;
+	time_t now;
+	int fd, saved_errno;
+#define TBUF_LEN	2048
+#define FMT_LEN		1024
+#define MAXTRIES	10
+	char tbuf[TBUF_LEN], fmt_cpy[FMT_LEN], fmt_cat[FMT_LEN] = "";
+	size_t tbuf_left, fmt_left, msgsdlen;
+	char *fmt = fmt_cat;
+	int signal_safe = pri & LOG_SIGNAL_SAFE;
+	struct iovec iov[7];	/* prog + [ + pid + ]: + fmt + crlf */
+	int opened, iovcnt;
+
+	pri &= ~LOG_SIGNAL_SAFE;
+
+#define INTERNALLOG	LOG_ERR|LOG_CONS|LOG_PERROR|LOG_PID
 	/* Check for invalid bits. */
 	if (pri & ~(LOG_PRIMASK|LOG_FACMASK)) {
-		if (data == &sdata) {
-			syslog(INTERNALLOG,
-			    "syslog: unknown facility/priority: %x", pri);
-		} else {
-			syslog_r(INTERNALLOG, data,
-			    "syslog_r: unknown facility/priority: %x", pri);
-		}
+		syslog_r(INTERNALLOG | signal_safe, data,
+		    "syslog_r: unknown facility/priority: %x", pri);
 		pri &= LOG_PRIMASK|LOG_FACMASK;
 	}
 
@@ -137,72 +252,148 @@ vsyslog_r(int pri, struct syslog_data *data, const char *fmt, va_list ap)
 	if ((pri & LOG_FACMASK) == 0)
 		pri |= data->log_fac;
 
-	/* If we have been called through syslog(), no need for reentrancy. */
-	if (data == &sdata)
-		(void)time(&now);
-
+	/* Build the message. */
 	p = tbuf;
 	tbuf_left = TBUF_LEN;
 
-#define	DEC()	\
-	do {					\
-		if (prlen < 0)			\
-			prlen = 0;		\
-		if (prlen >= tbuf_left)		\
-			prlen = tbuf_left - 1;	\
-		p += prlen;			\
-		tbuf_left -= prlen;		\
-	} while (0)
+#define DEC()							\
+	do {							\
+		if (prlen >= tbuf_left)				\
+			prlen = tbuf_left - 1;			\
+		p += prlen;					\
+		tbuf_left -= prlen;				\
+	} while (/*CONSTCOND*/0)
 
-	prlen = snprintf(p, tbuf_left, "<%d>", pri);
+	prlen = snprintf_ss(p, tbuf_left, "<%d>1 ", pri);
 	DEC();
 
-	/* 
-	 * syslogd will expand time automagically for reentrant case, and
-	 * for normal case, just do like before
-	 */
-	if (data == &sdata) {
-		prlen = strftime(p, tbuf_left, "%h %e %T ", localtime(&now));
+	if (!signal_safe && (gettimeofday(&tv, NULL) != -1)) {
+		/* strftime() implies tzset(), localtime_r() doesn't. */
+		tzset();
+		now = (time_t) tv.tv_sec;
+		localtime_r(&now, &tmnow);
+
+		prlen = strftime(p, tbuf_left, "%FT%T", &tmnow);
 		DEC();
+		prlen = snprintf(p, tbuf_left, ".%06ld", (long)tv.tv_usec);
+		DEC();
+		prlen = strftime(p, tbuf_left-1, "%z", &tmnow);
+		/* strftime gives eg. "+0200", but we need "+02:00" */
+		if (prlen == 5) {
+			p[prlen+1] = p[prlen];
+			p[prlen]   = p[prlen-1];
+			p[prlen-1] = p[prlen-2];
+			p[prlen-2] = ':';
+			prlen += 1;
+		}
+	} else {
+		prlen = snprintf_ss(p, tbuf_left, "-");
+#if 0
+		/*
+		 * if gmtime_r() was signal-safe we could output
+		 * the UTC-time:
+		 */
+		gmtime_r(&now, &tmnow);
+		prlen = strftime(p, tbuf_left, "%FT%TZ", &tmnow);
+#endif
 	}
 
-	if (data->log_stat & LOG_PERROR)
-		stdp = p;
+#ifndef __minix
+	if (data == &sdata)
+		mutex_lock(&syslog_mutex);
+#endif
+
+	if (data->log_hostname[0] == '\0' && gethostname(data->log_hostname,
+	    sizeof(data->log_hostname)) == -1) {
+		/* can this really happen? */
+		data->log_hostname[0] = '-';
+		data->log_hostname[1] = '\0';
+	}
+
+	DEC();
+	prlen = snprintf_ss(p, tbuf_left, " %s ", data->log_hostname);
+
 	if (data->log_tag == NULL)
-		data->log_tag = __progname;
-	if (data->log_tag != NULL) {
-		prlen = snprintf(p, tbuf_left, "%s", data->log_tag);
-		DEC();
+		data->log_tag = getprogname();
+
+	DEC();
+	prlen = snprintf_ss(p, tbuf_left, "%s ",
+	    data->log_tag ? data->log_tag : "-");
+
+#ifndef __minix
+	if (data == &sdata)
+		mutex_unlock(&syslog_mutex);
+#endif
+
+	if (data->log_stat & (LOG_PERROR|LOG_CONS)) {
+		iovcnt = 0;
+		iov[iovcnt].iov_base = p;
+		iov[iovcnt].iov_len = prlen - 1;
+		iovcnt++;
 	}
+	DEC();
+
 	if (data->log_stat & LOG_PID) {
-		prlen = snprintf(p, tbuf_left, "[%ld]", (long)getpid());
-		DEC();
+		prlen = snprintf_ss(p, tbuf_left, "%d ", getpid());
+		if (data->log_stat & (LOG_PERROR|LOG_CONS)) {
+			iov[iovcnt].iov_base = __UNCONST("[");
+			iov[iovcnt].iov_len = 1;
+			iovcnt++;
+			iov[iovcnt].iov_base = p;
+			iov[iovcnt].iov_len = prlen - 1;
+			iovcnt++;
+			iov[iovcnt].iov_base = __UNCONST(BRCOSP);
+			iov[iovcnt].iov_len = 3;
+			iovcnt++;
+		}
+	} else {
+		prlen = snprintf_ss(p, tbuf_left, "- ");
+		if (data->log_stat & (LOG_PERROR|LOG_CONS)) {
+			iov[iovcnt].iov_base = __UNCONST(BRCOSP + 1);
+			iov[iovcnt].iov_len = 2;
+			iovcnt++;
+		}
 	}
-	if (data->log_tag != NULL) {
-		if (tbuf_left > 1) {
-			*p++ = ':';
-			tbuf_left--;
-		}
-		if (tbuf_left > 1) {
-			*p++ = ' ';
-			tbuf_left--;
-		}
+	DEC();
+
+	/*
+	 * concat the format strings, then use one vsnprintf()
+	 */
+	if (msgid != NULL && *msgid != '\0') {
+		strlcat(fmt_cat, msgid, FMT_LEN);
+		strlcat(fmt_cat, " ", FMT_LEN);
+	} else
+		strlcat(fmt_cat, "- ", FMT_LEN);
+
+	if (sdfmt != NULL && *sdfmt != '\0') {
+		strlcat(fmt_cat, sdfmt, FMT_LEN);
+	} else
+		strlcat(fmt_cat, "-", FMT_LEN);
+
+	if (data->log_stat & (LOG_PERROR|LOG_CONS))
+		msgsdlen = strlen(fmt_cat) + 1;
+	else
+		msgsdlen = 0;	/* XXX: GCC */
+
+	if (msgfmt != NULL && *msgfmt != '\0') {
+		strlcat(fmt_cat, " ", FMT_LEN);
+		strlcat(fmt_cat, msgfmt, FMT_LEN);
 	}
 
-	/* strerror() is not reentrant */
-
-	for (t = fmt_cpy, fmt_left = FMT_LEN; (ch = *fmt); ++fmt) {
+	/*
+	 * We wouldn't need this mess if printf handled %m, or if
+	 * strerror() had been invented before syslog().
+	 */
+	for (t = fmt_cpy, fmt_left = FMT_LEN; (ch = *fmt) != '\0'; ++fmt) {
 		if (ch == '%' && fmt[1] == 'm') {
+			char ebuf[128];
 			++fmt;
-			if (data == &sdata) {
-				prlen = snprintf(t, fmt_left, "%s",
-				    strerror(saved_errno)); 
-			} else {
-				prlen = snprintf(t, fmt_left, "Error %d",
-				    saved_errno); 
-			}
-			if (prlen < 0)
-				prlen = 0;
+			if (signal_safe ||
+			    strerror_r(saved_errno, ebuf, sizeof(ebuf)))
+				prlen = snprintf_ss(t, fmt_left, "Error %d",
+				    saved_errno);
+			else
+				prlen = snprintf_ss(t, fmt_left, "%s", ebuf);
 			if (prlen >= fmt_left)
 				prlen = fmt_left - 1;
 			t += prlen;
@@ -221,24 +412,35 @@ vsyslog_r(int pri, struct syslog_data *data, const char *fmt, va_list ap)
 	}
 	*t = '\0';
 
-	prlen = vsnprintf(p, tbuf_left, fmt_cpy, ap);
+	if (signal_safe)
+		prlen = vsnprintf_ss(p, tbuf_left, fmt_cpy, ap);
+	else
+		prlen = vsnprintf(p, tbuf_left, fmt_cpy, ap);
+
+	if (data->log_stat & (LOG_PERROR|LOG_CONS)) {
+		iov[iovcnt].iov_base = p + msgsdlen;
+		iov[iovcnt].iov_len = prlen - msgsdlen;
+		iovcnt++;
+	}
+
 	DEC();
 	cnt = p - tbuf;
 
 	/* Output to stderr if requested. */
 	if (data->log_stat & LOG_PERROR) {
-		struct iovec iov[2];
-
-		iov[0].iov_base = stdp;
-		iov[0].iov_len = cnt - (stdp - tbuf);
-		iov[1].iov_base = "\n";
-		iov[1].iov_len = 1;
-		(void)writev(STDERR_FILENO, iov, 2);
+		iov[iovcnt].iov_base = __UNCONST(CRLF + 1);
+		iov[iovcnt].iov_len = 1;
+		(void)writev(STDERR_FILENO, iov, iovcnt + 1);
 	}
 
 	/* Get connected, output the message to the local logger. */
-	if (!data->opened)
-		openlog_r(data->log_tag, data->log_stat, 0, data);
+#ifndef __minix
+	if (data == &sdata)
+		mutex_lock(&syslog_mutex);
+#endif
+	opened = !data->log_opened;
+	if (opened)
+		openlog_unlocked_r(data->log_tag, data->log_stat, 0, data);
 	connectlog_r(data);
 
 	/*
@@ -249,16 +451,18 @@ vsyslog_r(int pri, struct syslog_data *data, const char *fmt, va_list ap)
 	 * case #1 and keep send()ing data to cover case #2
 	 * to give syslogd a chance to empty its socket buffer.
 	 */
-	if ((error = send(data->log_file, tbuf, cnt, 0)) < 0) {
+	for (tries = 0; tries < MAXTRIES; tries++) {
+#ifdef __minix
+		if (write(data->log_file, tbuf, cnt) != -1)
+#else
+		if (send(data->log_file, tbuf, cnt, 0) != -1)
+#endif
+			break;
 		if (errno != ENOBUFS) {
 			disconnectlog_r(data);
 			connectlog_r(data);
-		}
-		do {
-			usleep(1);
-			if ((error = send(data->log_file, tbuf, cnt, 0)) >= 0)
-				break;
-		} while (errno == ENOBUFS);
+		} else
+			(void)usleep(1);
 	}
 
 	/*
@@ -266,21 +470,25 @@ vsyslog_r(int pri, struct syslog_data *data, const char *fmt, va_list ap)
 	 * as a blocking console should not stop other processes.
 	 * Make sure the error reported is the one from the syslogd failure.
 	 */
-	if (error == -1 && (data->log_stat & LOG_CONS) &&
+	if (tries == MAXTRIES && (data->log_stat & LOG_CONS) &&
 	    (fd = open(_PATH_CONSOLE, O_WRONLY|O_NONBLOCK, 0)) >= 0) {
-		struct iovec iov[2];
-		
-		p = strchr(tbuf, '>') + 1;
-		iov[0].iov_base = p;
-		iov[0].iov_len = cnt - (p - tbuf);
-		iov[1].iov_base = "\r\n";
-		iov[1].iov_len = 2;
-		(void)writev(fd, iov, 2);
+		iov[iovcnt].iov_base = __UNCONST(CRLF);
+		iov[iovcnt].iov_len = 2;
+		(void)writev(fd, iov, iovcnt + 1);
 		(void)close(fd);
 	}
 
-	if (data != &sdata)
+#ifndef __minix
+	if (data == &sdata)
+		mutex_unlock(&syslog_mutex);
+#endif
+
+	if (data != &sdata && opened) {
+		/* preserve log tag */
+		const char *ident = data->log_tag;
 		closelog_r(data);
+		data->log_tag = ident;
+	}
 }
 
 static void
@@ -292,47 +500,50 @@ disconnectlog_r(struct syslog_data *data)
 	 * system services.
 	 */
 	if (data->log_file != -1) {
-		close(data->log_file);
+		(void)close(data->log_file);
 		data->log_file = -1;
 	}
-	data->connected = 0;		/* retry connect */
+	data->log_connected = 0;		/* retry connect */
 }
 
 static void
 connectlog_r(struct syslog_data *data)
 {
-    union {
-        struct sockaddr     syslogAddr;
-        struct sockaddr_un  syslogAddrUn;
-    } u;
-
-#define SyslogAddr   u.syslogAddrUn
-
-	if (data->log_file == -1) {
-		if ((data->log_file = socket(AF_UNIX, SOCK_DGRAM, 0)) == -1)
-			return;
-		(void)fcntl(data->log_file, F_SETFD, 1);
-	}
-	if (data->log_file != -1 && !data->connected) {
-		memset(&SyslogAddr, '\0', sizeof(SyslogAddr));
-#if 0
-                /* BIONIC: no sun_len field to fill on Linux */
-		SyslogAddr.sun_len = sizeof(SyslogAddr);
+	/* AF_UNIX address of local logger */
+	static const struct sockaddr_un sun = {
+		.sun_family = AF_LOCAL,
+#ifndef __minix
+		.sun_len = sizeof(sun),
 #endif
-		SyslogAddr.sun_family = AF_UNIX;
-		strlcpy(SyslogAddr.sun_path, _PATH_LOG,
-		    sizeof(SyslogAddr.sun_path));
-		if (connect(data->log_file, &u.syslogAddr,
-		    sizeof(SyslogAddr)) == -1) {
+		.sun_path = _PATH_LOG,
+	};
+
+	if (data->log_file == -1 || fcntl(data->log_file, F_GETFL, 0) == -1) {
+		if ((data->log_file = socket(AF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC,
+		    0)) == -1)
+			return;
+		data->log_connected = 0;
+	}
+	if (!data->log_connected) {
+#ifdef __minix
+		if(ioctl(data->log_file, NWIOSUDSTADDR, (void *) &sun) < 0)
+
+#else
+		if (connect(data->log_file,
+		    (const struct sockaddr *)(const void *)&sun,
+		    (socklen_t)sizeof(sun)) == -1)
+#endif
+		{
 			(void)close(data->log_file);
 			data->log_file = -1;
 		} else
-			data->connected = 1;
+			data->log_connected = 1;
 	}
 }
 
-void
-openlog_r(const char *ident, int logstat, int logfac, struct syslog_data *data)
+static void
+openlog_unlocked_r(const char *ident, int logstat, int logfac,
+    struct syslog_data *data)
 {
 	if (ident != NULL)
 		data->log_tag = ident;
@@ -343,19 +554,40 @@ openlog_r(const char *ident, int logstat, int logfac, struct syslog_data *data)
 	if (data->log_stat & LOG_NDELAY)	/* open immediately */
 		connectlog_r(data);
 
-	data->opened = 1;	/* ident and facility has been set */
+	data->log_opened = 1;
+}
+
+void
+openlog_r(const char *ident, int logstat, int logfac, struct syslog_data *data)
+{
+#ifndef __minix
+	if (data == &sdata)
+		mutex_lock(&syslog_mutex);
+#endif
+	openlog_unlocked_r(ident, logstat, logfac, data);
+#ifndef __minix
+	if (data == &sdata)
+		mutex_unlock(&syslog_mutex);
+#endif
 }
 
 void
 closelog_r(struct syslog_data *data)
 {
+#ifndef __minix
+	if (data == &sdata)
+		mutex_lock(&syslog_mutex);
+#endif
 	(void)close(data->log_file);
 	data->log_file = -1;
-	data->connected = 0;
+	data->log_connected = 0;
 	data->log_tag = NULL;
+#ifndef __minix
+	if (data == &sdata)
+		mutex_unlock(&syslog_mutex);
+#endif
 }
 
-/* setlogmask -- set the log mask level */
 int
 setlogmask_r(int pmask, struct syslog_data *data)
 {
@@ -364,5 +596,5 @@ setlogmask_r(int pmask, struct syslog_data *data)
 	omask = data->log_mask;
 	if (pmask != 0)
 		data->log_mask = pmask;
-	return (omask);
+	return omask;
 }

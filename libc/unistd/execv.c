@@ -1,7 +1,7 @@
-/*	$NetBSD: time.c,v 1.12 2012/03/13 21:13:37 christos Exp $	*/
+/*	$NetBSD: execv.c,v 1.10 2012/06/25 22:32:43 abs Exp $	*/
 
-/*
- * Copyright (c) 1983, 1993
+/*-
+ * Copyright (c) 1991, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -32,30 +32,24 @@
 #include <sys/cdefs.h>
 #if defined(LIBC_SCCS) && !defined(lint)
 #if 0
-static char sccsid[] = "@(#)time.c	8.1 (Berkeley) 6/4/93";
+static char sccsid[] = "@(#)exec.c	8.1 (Berkeley) 6/4/93";
 #else
-__RCSID("$NetBSD: time.c,v 1.12 2012/03/13 21:13:37 christos Exp $");
+__RCSID("$NetBSD: execv.c,v 1.10 2012/06/25 22:32:43 abs Exp $");
 #endif
 #endif /* LIBC_SCCS and not lint */
 
 #include "namespace.h"
-#include <sys/types.h>
-#include <sys/time.h>
+#include <unistd.h>
+#include "reentrant.h"
 
-#include <time.h>
-
-time_t
-time(time_t *t)
-{
-	struct timeval tt;
-
-	if (gettimeofday(&tt, NULL) == -1)
-		return (time_t)-1;
-	if (t != NULL)
-		*t = (time_t)tt.tv_sec;
-	return (time_t)tt.tv_sec;
-}
-
-#if defined(__minix) && defined(__weak_alias)
-__weak_alias(time, __time50)
+#ifdef __weak_alias
+__weak_alias(execv,_execv)
 #endif
+
+extern char **environ;
+
+int
+execv(const char *name, char * const *argv)
+{
+	return execve(name, argv, environ);
+}

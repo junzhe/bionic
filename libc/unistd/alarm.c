@@ -1,3 +1,5 @@
+/*	$NetBSD: alarm.c,v 1.11 2012/06/25 22:32:43 abs Exp $	*/
+
 /*
  * Copyright (c) 1983, 1993
  *	The Regents of the University of California.  All rights reserved.
@@ -10,7 +12,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 4. Neither the name of the University nor the names of its contributors
+ * 3. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
@@ -27,36 +29,38 @@
  * SUCH DAMAGE.
  */
 
-#if defined(LIBC_SCCS) && !defined(lint)
-static char sccsid[] = "@(#)alarm.c	8.1 (Berkeley) 6/4/93";
-#endif /* LIBC_SCCS and not lint */
 #include <sys/cdefs.h>
-//__FBSDID("$FreeBSD: /repoman/r/ncvs/src/lib/libc/gen/alarm.c,v 1.3 2007/01/09 00:27:53 imp Exp $");
+#if defined(LIBC_SCCS) && !defined(lint)
+#if 0
+static char sccsid[] = "@(#)alarm.c	8.1 (Berkeley) 6/4/93";
+#else
+__RCSID("$NetBSD: alarm.c,v 1.11 2012/06/25 22:32:43 abs Exp $");
+#endif
+#endif /* LIBC_SCCS and not lint */
 
 /*
  * Backwards compatible alarm.
  */
+#include "namespace.h"
 #include <sys/time.h>
 #include <unistd.h>
 
+#ifdef __weak_alias
+__weak_alias(alarm,_alarm)
+#endif
+
 unsigned int
-alarm(secs)
-	unsigned int secs;
+alarm(unsigned int secs)
 {
 	struct itimerval it, oitv;
 	struct itimerval *itp = &it;
 
-    itp->it_interval.tv_usec = 0;
-    itp->it_interval.tv_sec = 0;
+	timerclear(&itp->it_interval);
 	itp->it_value.tv_sec = secs;
 	itp->it_value.tv_usec = 0;
-	if (setitimer(ITIMER_REAL, itp, &oitv) < 0)
-#if 1 /* BIONIC: Same behaviour than GLibc for errors */
-		return 0;
-#else
-		return (-1);
-#endif
+	if (setitimer(ITIMER_REAL, itp, &oitv) == -1)
+		return (unsigned int) -1;
 	if (oitv.it_value.tv_usec)
 		oitv.it_value.tv_sec++;
-	return (oitv.it_value.tv_sec);
+	return (unsigned int)oitv.it_value.tv_sec;
 }
