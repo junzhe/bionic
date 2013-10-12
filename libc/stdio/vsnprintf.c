@@ -1,4 +1,5 @@
-/*	$OpenBSD: vsnprintf.c,v 1.12 2006/01/06 18:53:04 millert Exp $ */
+/*	$NetBSD: vsnprintf.c,v 1.25 2012/03/15 18:22:31 christos Exp $	*/
+
 /*-
  * Copyright (c) 1990, 1993
  *	The Regents of the University of California.  All rights reserved.
@@ -31,34 +32,60 @@
  * SUCH DAMAGE.
  */
 
-#include <limits.h>
+#include <sys/cdefs.h>
+#if defined(LIBC_SCCS) && !defined(lint)
+#if 0
+static char sccsid[] = "@(#)vsnprintf.c	8.1 (Berkeley) 6/4/93";
+#else
+__RCSID("$NetBSD: vsnprintf.c,v 1.25 2012/03/15 18:22:31 christos Exp $");
+#endif
+#endif /* LIBC_SCCS and not lint */
+
+#include "namespace.h"
+
+#include <assert.h>
+#include <errno.h>
 #include <stdio.h>
-#include <string.h>
+#include "reentrant.h"
 #include "local.h"
 
+#if defined(_FORTIFY_SOURCE) && !defined(__lint__)
+#undef vsnprintf
+#define vsnprintf _vsnprintf
+#endif
+
+#ifdef __weak_alias
+__weak_alias(vsnprintf,_vsnprintf)
+#endif
+
 int
-vsnprintf(char *str, size_t n, const char *fmt, __va_list ap)
+vsnprintf(char *str, size_t n, const char *fmt, va_list ap)
 {
 	int ret;
-	char dummy;
 	FILE f;
 	struct __sfileext fext;
+	unsigned char dummy[1];
+
+	_DIAGASSERT(n == 0 || str != NULL);
+	_DIAGASSERT(fmt != NULL);
+
+	if ((int)n < 0) {
+		errno = EINVAL;
+		return -1;
+	}
 
 	_FILEEXT_SETUP(&f, &fext);
-
-	/* While snprintf(3) specifies size_t stdio uses an int internally */
-	if (n > INT_MAX)
-		n = INT_MAX;
-	/* Stdio internals do not deal correctly with zero length buffer */
-	if (n == 0) {
-		str = &dummy;
-		n = 1;
-	}
 	f._file = -1;
 	f._flags = __SWR | __SSTR;
-	f._bf._base = f._p = (unsigned char *)str;
-	f._bf._size = f._w = n - 1;
-	ret = __vfprintf(&f, fmt, ap);
-	*f._p = '\0';
-	return (ret);
+	if (n == 0) {
+		f._bf._base = f._p = dummy;
+		f._bf._size = f._w = 0;
+	} else {
+		f._bf._base = f._p = (unsigned char *)str;
+		_DIAGASSERT(__type_fit(int, n - 1));
+		f._bf._size = f._w = (int)(n - 1);
+	}
+	ret = __vfprintf_unlocked(&f, fmt, ap);
+	*f._p = 0;
+	return ret;
 }

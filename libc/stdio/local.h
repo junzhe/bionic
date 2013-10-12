@@ -1,4 +1,4 @@
-/*	$OpenBSD: local.h,v 1.12 2005/10/10 17:37:44 espie Exp $	*/
+/*	$NetBSD: local.h,v 1.34 2012/03/27 15:05:42 christos Exp $	*/
 
 /*-
  * Copyright (c) 1990, 1993
@@ -30,42 +30,63 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
+ *
+ *	@(#)local.h	8.3 (Berkeley) 7/3/94
  */
 
 #include "wcio.h"
 #include "fileext.h"
 
+#include <limits.h>
+#include <stdarg.h>
+#include <stdbool.h>
 
 /*
  * Information local to this implementation of stdio,
  * in particular, macros and private variables.
  */
 
-int	__sflush(FILE *);
-int	__sflush_locked(FILE *);
-FILE	*__sfp(void);
-int	__srefill(FILE *);
-int	__sread(void *, char *, int);
-int	__swrite(void *, const char *, int);
-fpos_t	__sseek(void *, fpos_t, int);
-int	__sclose(void *);
-void	__sinit(void);
-void	_cleanup(void);
-void	__smakebuf(FILE *);
-int	__swhatbuf(FILE *, size_t *, int *);
-int	_fwalk(int (*)(FILE *));
-int	__swsetup(FILE *);
-int	__sflags(const char *, int *);
-int	__vfprintf(FILE *, const char *, __va_list);
+extern int	__sflush(FILE *);
+extern FILE	*__sfp(void);
+extern void	__sfpinit(FILE *);
+extern int	__srefill(FILE *);
+extern ssize_t	__sread(void *, void *, size_t);
+extern ssize_t	__swrite(void *, const void *, size_t);
+extern off_t	__sseek(void *, off_t, int);
+extern int	__sclose(void *);
+extern void	__sinit(void);
+extern void	_cleanup(void);
+extern void	(*__cleanup)(void);
+extern void	__smakebuf(FILE *);
+extern int	__swhatbuf(FILE *, size_t *, int *);
+extern int	_fwalk(int (*)(FILE *));
+extern char	*_mktemp(char *);
+extern int	__swsetup(FILE *);
+extern int	__sflags(const char *, int *);
+extern int	__svfscanf(FILE * __restrict, const char * __restrict,
+    va_list) __scanflike(2, 0);
+extern int	__svfscanf_unlocked(FILE * __restrict, const char * __restrict,
+    va_list) __scanflike(2, 0);
+extern int	__vfprintf_unlocked(FILE * __restrict, const char * __restrict,
+    va_list) __printflike(2, 0);
+
+
+extern int	__sdidinit;
+
+extern int	__gettemp(char *, int *, int);
+
+extern wint_t	__fgetwc_unlock(FILE *);
+extern wint_t	__fputwc_unlock(wchar_t, FILE *);
+
+extern ssize_t	__getdelim(char **__restrict, size_t *__restrict, int,
+    FILE *__restrict);
+extern char	*__fgetstr(FILE * __restrict, size_t * __restrict, int);
+extern int 	 __vfwprintf_unlocked(FILE *, const wchar_t *, va_list);
+extern int	 __vfwscanf_unlocked(FILE * __restrict,
+    const wchar_t * __restrict, va_list);
 
 /*
- * Function to clean up streams, called from abort() and exit().
- */
-extern void (*__cleanup)(void);
-extern int __sdidinit;
-
-/*
- * Return true if the given FILE cannot be written now.
+ * Return true iff the given FILE cannot be written now.
  */
 #define	cantwrite(fp) \
 	((((fp)->_flags & __SWR) == 0 || (fp)->_bf._base == NULL) && \
@@ -78,20 +99,28 @@ extern int __sdidinit;
 #define	HASUB(fp) (_UB(fp)._base != NULL)
 #define	FREEUB(fp) { \
 	if (_UB(fp)._base != (fp)->_ubuf) \
-		free(_UB(fp)._base); \
+		free((char *)_UB(fp)._base); \
 	_UB(fp)._base = NULL; \
 }
 
 /*
  * test for an fgetln() buffer.
  */
-#define	HASLB(fp) ((fp)->_lb._base != NULL)
 #define	FREELB(fp) { \
-	free((char *)(fp)->_lb._base); \
-	(fp)->_lb._base = NULL; \
+	free(_EXT(fp)->_fgetstr_buf); \
+	_EXT(fp)->_fgetstr_buf = NULL; \
+	_EXT(fp)->_fgetstr_len = 0; \
 }
 
-#define FLOCKFILE(fp)   do { if (__isthreaded) flockfile(fp); } while (0)
-#define FUNLOCKFILE(fp) do { if (__isthreaded) funlockfile(fp); } while (0)
+extern void __flockfile_internal(FILE *, int);
+extern void __funlockfile_internal(FILE *, int);
 
-#define FLOATING_POINT
+/*
+ * Detect if the current file position fits in a long int.
+ */
+
+static __inline bool
+__long_overflow(off_t pos)
+{
+	return (pos < LONG_MIN) || (pos > LONG_MAX);
+}

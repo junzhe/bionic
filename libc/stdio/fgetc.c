@@ -1,4 +1,5 @@
-/*	$OpenBSD: fgetc.c,v 1.5 2005/08/08 08:05:36 espie Exp $ */
+/*	$NetBSD: fgetc.c,v 1.12 2012/03/15 18:22:30 christos Exp $	*/
+
 /*-
  * Copyright (c) 1990, 1993
  *	The Regents of the University of California.  All rights reserved.
@@ -31,10 +32,30 @@
  * SUCH DAMAGE.
  */
 
+#include <sys/cdefs.h>
+#if defined(LIBC_SCCS) && !defined(lint)
+#if 0
+static char sccsid[] = "@(#)fgetc.c	8.1 (Berkeley) 6/4/93";
+#else
+__RCSID("$NetBSD: fgetc.c,v 1.12 2012/03/15 18:22:30 christos Exp $");
+#endif
+#endif /* LIBC_SCCS and not lint */
+
+#include <assert.h>
+#include <errno.h>
 #include <stdio.h>
+#include "reentrant.h"
+#include "local.h"
 
 int
 fgetc(FILE *fp)
 {
-	return (getc(fp));
+	int r;
+
+	_DIAGASSERT(fp != NULL);
+
+	FLOCKFILE(fp);
+	r = __sgetc(fp);
+	FUNLOCKFILE(fp);
+	return r;
 }

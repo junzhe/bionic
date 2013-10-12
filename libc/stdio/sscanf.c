@@ -1,4 +1,5 @@
-/*	$OpenBSD: sscanf.c,v 1.12 2005/08/08 08:05:36 espie Exp $ */
+/*	$NetBSD: sscanf.c,v 1.20 2012/03/27 15:05:42 christos Exp $	*/
+
 /*-
  * Copyright (c) 1990, 1993
  *	The Regents of the University of California.  All rights reserved.
@@ -31,35 +32,54 @@
  * SUCH DAMAGE.
  */
 
+#include <sys/cdefs.h>
+#if defined(LIBC_SCCS) && !defined(lint)
+#if 0
+static char sccsid[] = "@(#)sscanf.c	8.1 (Berkeley) 6/4/93";
+#else
+__RCSID("$NetBSD: sscanf.c,v 1.20 2012/03/27 15:05:42 christos Exp $");
+#endif
+#endif /* LIBC_SCCS and not lint */
+
+#include <assert.h>
+#include <errno.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
-#include <stdarg.h>
+
+#include "reentrant.h"
 #include "local.h"
 
 /* ARGSUSED */
-static int
-eofread(void *cookie, char *buf, int len)
+static ssize_t
+eofread(void *cookie, void *buf, size_t len)
 {
 
-	return (0);
+	return 0;
 }
 
 int
-sscanf(const char *str, const char *fmt, ...)
+sscanf(const char *str, char const *fmt, ...)
 {
 	int ret;
 	va_list ap;
 	FILE f;
+	size_t len;
 	struct __sfileext fext;
+
+	_DIAGASSERT(str != NULL);
+	_DIAGASSERT(fmt != NULL);
 
 	_FILEEXT_SETUP(&f, &fext);
 	f._flags = __SRD;
-	f._bf._base = f._p = (unsigned char *)str;
-	f._bf._size = f._r = strlen(str);
+	f._bf._base = f._p = __UNCONST(str);
+	len = strlen(str);
+	_DIAGASSERT(__type_fit(int, len));
+	f._bf._size = f._r = (int)len;
 	f._read = eofread;
-	f._lb._base = NULL;
+	_UB(&f)._base = NULL;
 	va_start(ap, fmt);
-	ret = vfscanf(&f, fmt, ap);
+	ret = __svfscanf_unlocked(&f, fmt, ap);
 	va_end(ap);
-	return (ret);
+	return ret;
 }

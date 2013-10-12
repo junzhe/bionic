@@ -1,4 +1,5 @@
-/*	$OpenBSD: gets.c,v 1.9 2005/08/08 08:05:36 espie Exp $ */
+/*	$NetBSD: gets.c,v 1.17 2012/03/15 18:22:30 christos Exp $	*/
+
 /*-
  * Copyright (c) 1990, 1993
  *	The Regents of the University of California.  All rights reserved.
@@ -31,11 +32,25 @@
  * SUCH DAMAGE.
  */
 
-#include <stdio.h>
-#include "local.h"
+#include <sys/cdefs.h>
+#if defined(LIBC_SCCS) && !defined(lint)
+#if 0
+static char sccsid[] = "@(#)gets.c	8.1 (Berkeley) 6/4/93";
+#else
+__RCSID("$NetBSD: gets.c,v 1.17 2012/03/15 18:22:30 christos Exp $");
+#endif
+#endif /* LIBC_SCCS and not lint */
 
-__warn_references(gets,
-    "warning: gets() is very unsafe; consider using fgets()");
+#include <assert.h>
+#include <errno.h>
+#include <stdio.h>
+#include "reentrant.h"
+#include "local.h"
+#ifdef _FORTIFY_SOURCE
+#undef gets
+#endif
+
+__warn_references(gets, "warning: this program uses gets(), which is unsafe.")
 
 char *
 gets(char *buf)
@@ -43,17 +58,22 @@ gets(char *buf)
 	int c;
 	char *s;
 
+	_DIAGASSERT(buf != NULL);
+
 	FLOCKFILE(stdin);
-	for (s = buf; (c = getchar_unlocked()) != '\n';)
-		if (c == EOF)
+	for (s = buf; (c = getchar_unlocked()) != '\n'; ) {
+		if (c == EOF) {
 			if (s == buf) {
 				FUNLOCKFILE(stdin);
-				return (NULL);
-			} else
+				return NULL;
+			} else {
 				break;
-		else
+			}
+		} else {
 			*s++ = c;
-	*s = '\0';
+		}
+	}
+	*s = 0;
 	FUNLOCKFILE(stdin);
-	return (buf);
+	return buf;
 }

@@ -1,4 +1,5 @@
-/*	$OpenBSD: snprintf.c,v 1.14 2005/10/10 12:00:52 espie Exp $ */
+/*	$NetBSD: snprintf.c,v 1.24 2012/03/15 18:22:30 christos Exp $	*/
+
 /*-
  * Copyright (c) 1990, 1993
  *	The Regents of the University of California.  All rights reserved.
@@ -31,37 +32,64 @@
  * SUCH DAMAGE.
  */
 
-#include <limits.h>
-#include <stdio.h>
-#include <string.h>
+#include <sys/cdefs.h>
+#if defined(LIBC_SCCS) && !defined(lint)
+#if 0
+static char sccsid[] = "@(#)snprintf.c	8.1 (Berkeley) 6/4/93";
+#else
+__RCSID("$NetBSD: snprintf.c,v 1.24 2012/03/15 18:22:30 christos Exp $");
+#endif
+#endif /* LIBC_SCCS and not lint */
+
+#include "namespace.h"
+
+#include <assert.h>
+#include <errno.h>
 #include <stdarg.h>
+#include <stdio.h>
+
+#include "reentrant.h"
 #include "local.h"
 
+#if defined(_FORTIFY_SOURCE) && !defined(__lint__)
+#undef snprintf
+#define snprintf _snprintf
+#endif
+
+#ifdef __weak_alias
+__weak_alias(snprintf,_snprintf)
+#endif
+
 int
-snprintf(char *str, size_t n, const char *fmt, ...)
+snprintf(char *str, size_t n, char const *fmt, ...)
 {
-	va_list ap;
 	int ret;
-	char dummy;
+	va_list ap;
 	FILE f;
 	struct __sfileext fext;
+	unsigned char dummy[1];
 
-	/* While snprintf(3) specifies size_t stdio uses an int internally */
-	if (n > INT_MAX)
-		n = INT_MAX;
-	/* Stdio internals do not deal correctly with zero length buffer */
-	if (n == 0) {
-		str = &dummy;
-		n = 1;
+	_DIAGASSERT(n == 0 || str != NULL);
+	_DIAGASSERT(fmt != NULL);
+
+	if ((int)n < 0) {
+		errno = EINVAL;
+		return -1;
 	}
+	va_start(ap, fmt);
 	_FILEEXT_SETUP(&f, &fext);
 	f._file = -1;
 	f._flags = __SWR | __SSTR;
-	f._bf._base = f._p = (unsigned char *)str;
-	f._bf._size = f._w = n - 1;
-	va_start(ap, fmt);
-	ret = __vfprintf(&f, fmt, ap);
+	if (n == 0) {
+		f._bf._base = f._p = dummy;
+		f._bf._size = f._w = 0;
+	} else {
+		f._bf._base = f._p = (unsigned char *)str;
+		_DIAGASSERT(__type_fit(int, n - 1));
+		f._bf._size = f._w = (int)(n - 1);
+	}
+	ret = __vfprintf_unlocked(&f, fmt, ap);
+	*f._p = 0;
 	va_end(ap);
-	*f._p = '\0';
-	return (ret);
+	return ret;
 }

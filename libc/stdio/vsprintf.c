@@ -1,4 +1,5 @@
-/*	$OpenBSD: vsprintf.c,v 1.13 2006/01/06 18:53:04 millert Exp $ */
+/*	$NetBSD: vsprintf.c,v 1.17 2012/03/15 18:22:31 christos Exp $	*/
+
 /*-
  * Copyright (c) 1990, 1993
  *	The Regents of the University of California.  All rights reserved.
@@ -31,29 +32,42 @@
  * SUCH DAMAGE.
  */
 
-#include <stdio.h>
-#include <string.h>
+#include <sys/cdefs.h>
+#if defined(LIBC_SCCS) && !defined(lint)
+#if 0
+static char sccsid[] = "@(#)vsprintf.c	8.1 (Berkeley) 6/4/93";
+#else
+__RCSID("$NetBSD: vsprintf.c,v 1.17 2012/03/15 18:22:31 christos Exp $");
+#endif
+#endif /* LIBC_SCCS and not lint */
+
+#include <assert.h>
+#include <errno.h>
 #include <limits.h>
+#include <stdio.h>
+#include "reentrant.h"
 #include "local.h"
 
-#if defined(APIWARN)
-__warn_references(vsprintf,
-    "warning: vsprintf() is often misused, please use vsnprintf()");
+#ifdef _FORTIFY_SOURCE
+#undef vsprintf
 #endif
 
 int
-vsprintf(char *str, const char *fmt, __va_list ap)
+vsprintf(char *str, const char *fmt, va_list ap)
 {
 	int ret;
 	FILE f;
 	struct __sfileext fext;
+
+	_DIAGASSERT(str != NULL);
+	_DIAGASSERT(fmt != NULL);
 
 	_FILEEXT_SETUP(&f, &fext);
 	f._file = -1;
 	f._flags = __SWR | __SSTR;
 	f._bf._base = f._p = (unsigned char *)str;
 	f._bf._size = f._w = INT_MAX;
-	ret = __vfprintf(&f, fmt, ap);
-	*f._p = '\0';
-	return (ret);
+	ret = __vfprintf_unlocked(&f, fmt, ap);
+	*f._p = 0;
+	return ret;
 }

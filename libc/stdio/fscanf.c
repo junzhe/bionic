@@ -1,4 +1,5 @@
-/*	$OpenBSD: fscanf.c,v 1.9 2005/10/10 17:37:44 espie Exp $ */
+/*	$NetBSD: fscanf.c,v 1.13 2012/03/15 18:22:30 christos Exp $	*/
+
 /*-
  * Copyright (c) 1990, 1993
  *	The Regents of the University of California.  All rights reserved.
@@ -31,17 +32,31 @@
  * SUCH DAMAGE.
  */
 
-#include <stdio.h>
+#include <sys/cdefs.h>
+#if defined(LIBC_SCCS) && !defined(lint)
+#if 0
+static char sccsid[] = "@(#)fscanf.c	8.1 (Berkeley) 6/4/93";
+#else
+__RCSID("$NetBSD: fscanf.c,v 1.13 2012/03/15 18:22:30 christos Exp $");
+#endif
+#endif /* LIBC_SCCS and not lint */
+
+#include <assert.h>
+#include <errno.h>
 #include <stdarg.h>
+#include <stdio.h>
+
+#include "reentrant.h"
+#include "local.h"
 
 int
-fscanf(FILE *fp, const char *fmt, ...)
+fscanf(FILE *fp, char const *fmt, ...)
 {
 	int ret;
 	va_list ap;
 
 	va_start(ap, fmt);
-	ret = vfscanf(fp, fmt, ap);
+	ret = __svfscanf(fp, fmt, ap);
 	va_end(ap);
-	return (ret);
+	return ret;
 }

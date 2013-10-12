@@ -1,4 +1,4 @@
-/*	$OpenBSD: fvwrite.h,v 1.5 2003/06/02 20:18:37 millert Exp $	*/
+/*	$NetBSD: fvwrite.h,v 1.8 2012/03/13 21:13:46 christos Exp $	*/
 
 /*-
  * Copyright (c) 1990, 1993
@@ -30,19 +30,21 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
+ *
+ *	@(#)fvwrite.h	8.1 (Berkeley) 6/4/93
  */
 
 /*
  * I/O descriptors for __sfvwrite().
  */
 struct __siov {
-	const void	*iov_base;
+	void	*iov_base;
 	size_t	iov_len;
 };
 struct __suio {
 	struct	__siov *uio_iov;
-	int	uio_iovcnt;
-	int	uio_resid;
+	size_t	uio_iovcnt;
+	size_t	uio_resid;
 };
 
 extern int __sfvwrite(FILE *, struct __suio *);

@@ -1,4 +1,5 @@
-/*	$OpenBSD: fprintf.c,v 1.6 2005/08/08 08:05:36 espie Exp $ */
+/*	$NetBSD: fprintf.c,v 1.12 2012/03/15 18:22:30 christos Exp $	*/
+
 /*-
  * Copyright (c) 1990, 1993
  *	The Regents of the University of California.  All rights reserved.
@@ -31,8 +32,19 @@
  * SUCH DAMAGE.
  */
 
-#include <stdio.h>
+#include <sys/cdefs.h>
+#if defined(LIBC_SCCS) && !defined(lint)
+#if 0
+static char sccsid[] = "@(#)fprintf.c	8.1 (Berkeley) 6/4/93";
+#else
+__RCSID("$NetBSD: fprintf.c,v 1.12 2012/03/15 18:22:30 christos Exp $");
+#endif
+#endif /* LIBC_SCCS and not lint */
+
+#include <assert.h>
+#include <errno.h>
 #include <stdarg.h>
+#include <stdio.h>
 
 int
 fprintf(FILE *fp, const char *fmt, ...)
@@ -40,8 +52,11 @@ fprintf(FILE *fp, const char *fmt, ...)
 	int ret;
 	va_list ap;
 
+	_DIAGASSERT(fp != NULL);
+	_DIAGASSERT(fmt != NULL);
+
 	va_start(ap, fmt);
 	ret = vfprintf(fp, fmt, ap);
 	va_end(ap);
-	return (ret);
+	return ret;
 }

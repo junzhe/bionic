@@ -1,4 +1,4 @@
-/*	$OpenBSD: glue.h,v 1.4 2004/01/11 21:39:51 millert Exp $	*/
+/*	$NetBSD: glue.h,v 1.5 2003/08/07 16:43:27 agc Exp $	*/
 
 /*-
  * Copyright (c) 1990, 1993
@@ -30,6 +30,8 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
+ *
+ *	@(#)glue.h	8.1 (Berkeley) 6/4/93
  */
 
 /*

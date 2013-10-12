@@ -1,4 +1,5 @@
-/*	$OpenBSD: scanf.c,v 1.9 2005/08/08 08:05:36 espie Exp $ */
+/*	$NetBSD: scanf.c,v 1.13 2012/03/15 18:22:30 christos Exp $	*/
+
 /*-
  * Copyright (c) 1990, 1993
  *	The Regents of the University of California.  All rights reserved.
@@ -31,17 +32,33 @@
  * SUCH DAMAGE.
  */
 
-#include <stdio.h>
+#include <sys/cdefs.h>
+#if defined(LIBC_SCCS) && !defined(lint)
+#if 0
+static char sccsid[] = "@(#)scanf.c	8.1 (Berkeley) 6/4/93";
+#else
+__RCSID("$NetBSD: scanf.c,v 1.13 2012/03/15 18:22:30 christos Exp $");
+#endif
+#endif /* LIBC_SCCS and not lint */
+
+#include <assert.h>
+#include <errno.h>
 #include <stdarg.h>
+#include <stdio.h>
+
+#include "reentrant.h"
+#include "local.h"
 
 int
-scanf(const char *fmt, ...)
+scanf(char const *fmt, ...)
 {
 	int ret;
 	va_list ap;
 
+	_DIAGASSERT(fmt != NULL);
+
 	va_start(ap, fmt);
-	ret = vfscanf(stdin, fmt, ap);
+	ret = __svfscanf(stdin, fmt, ap);
 	va_end(ap);
-	return (ret);
+	return ret;
 }

@@ -1,4 +1,5 @@
-/*	$OpenBSD: fflush.c,v 1.5 2005/08/08 08:05:36 espie Exp $ */
+/*	$NetBSD: fflush.c,v 1.18 2012/03/27 15:05:42 christos Exp $	*/
+
 /*-
  * Copyright (c) 1990, 1993
  *	The Regents of the University of California.  All rights reserved.
@@ -31,9 +32,25 @@
  * SUCH DAMAGE.
  */
 
+#include <sys/cdefs.h>
+#if defined(LIBC_SCCS) && !defined(lint)
+#if 0
+static char sccsid[] = "@(#)fflush.c	8.1 (Berkeley) 6/4/93";
+#else
+__RCSID("$NetBSD: fflush.c,v 1.18 2012/03/27 15:05:42 christos Exp $");
+#endif
+#endif /* LIBC_SCCS and not lint */
+
+#include <stddef.h>
+#include <assert.h>
 #include <errno.h>
 #include <stdio.h>
+#include "reentrant.h"
 #include "local.h"
+
+#ifdef _REENTRANT
+extern rwlock_t __sfp_lock;
+#endif
 
 /* Flush a single file, or (if fp is NULL) all files.  */
 int
@@ -41,32 +58,43 @@ fflush(FILE *fp)
 {
 	int r;
 
-	if (fp == NULL)
-		return (_fwalk(__sflush_locked));
+	if (fp == NULL) {
+		rwlock_rdlock(&__sfp_lock);
+		r = _fwalk(__sflush);
+		rwlock_unlock(&__sfp_lock);
+		return r;
+	}
+
 	FLOCKFILE(fp);
 	if ((fp->_flags & (__SWR | __SRW)) == 0) {
 		errno = EBADF;
 		r = EOF;
-	} else
+	} else {
 		r = __sflush(fp);
+	}
 	FUNLOCKFILE(fp);
-	return (r);
+	return r;
 }
 
 int
 __sflush(FILE *fp)
 {
 	unsigned char *p;
-	int n, t;
+	size_t n;
+	ssize_t t;
+
+	_DIAGASSERT(fp != NULL);
 
 	t = fp->_flags;
 	if ((t & __SWR) == 0)
-		return (0);
+		return 0;
 
 	if ((p = fp->_bf._base) == NULL)
-		return (0);
+		return 0;
 
-	n = fp->_p - p;		/* write this much */
+	ptrdiff_t tp = fp->_p - p;
+	_DIAGASSERT(__type_fit(ssize_t, tp));
+	n = (ssize_t)tp;	/* write this much */
 
 	/*
 	 * Set these immediately to avoid problems with longjmp and to allow
@@ -79,19 +107,10 @@ __sflush(FILE *fp)
 		t = (*fp->_write)(fp->_cookie, (char *)p, n);
 		if (t <= 0) {
 			fp->_flags |= __SERR;
-			return (EOF);
+			return EOF;
 		}
 	}
-	return (0);
-}
-
-int
-__sflush_locked(FILE *fp)
-{
-	int r;
-
-	FLOCKFILE(fp);
-	r = __sflush(fp);
-	FUNLOCKFILE(fp);
-	return (r);
+	if (fp->_flush)
+		return (*fp->_flush)(fp->_cookie);
+	return 0;
 }

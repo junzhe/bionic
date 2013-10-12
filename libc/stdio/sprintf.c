@@ -1,4 +1,5 @@
-/*	$OpenBSD: sprintf.c,v 1.13 2005/10/10 12:00:52 espie Exp $ */
+/*	$NetBSD: sprintf.c,v 1.16 2012/03/15 18:22:30 christos Exp $	*/
+
 /*-
  * Copyright (c) 1990, 1993
  *	The Regents of the University of California.  All rights reserved.
@@ -31,24 +32,38 @@
  * SUCH DAMAGE.
  */
 
-#include <stdio.h>
-#include <string.h>
-#include <stdarg.h>
+#include <sys/cdefs.h>
+#if defined(LIBC_SCCS) && !defined(lint)
+#if 0
+static char sccsid[] = "@(#)sprintf.c	8.1 (Berkeley) 6/4/93";
+#else
+__RCSID("$NetBSD: sprintf.c,v 1.16 2012/03/15 18:22:30 christos Exp $");
+#endif
+#endif /* LIBC_SCCS and not lint */
+
+#include <assert.h>
+#include <errno.h>
 #include <limits.h>
+#include <stdarg.h>
+#include <stdio.h>
+
+#include "reentrant.h"
 #include "local.h"
 
-#if defined(APIWARN)
-__warn_references(sprintf,
-    "warning: sprintf() is often misused, please use snprintf()");
+#ifdef _FORTIFY_SOURCE
+#undef sprintf
 #endif
 
 int
-sprintf(char *str, const char *fmt, ...)
+sprintf(char *str, char const *fmt, ...)
 {
 	int ret;
 	va_list ap;
 	FILE f;
 	struct __sfileext fext;
+
+	_DIAGASSERT(str != NULL);
+	_DIAGASSERT(fmt != NULL);
 
 	_FILEEXT_SETUP(&f, &fext);
 	f._file = -1;
@@ -56,8 +71,8 @@ sprintf(char *str, const char *fmt, ...)
 	f._bf._base = f._p = (unsigned char *)str;
 	f._bf._size = f._w = INT_MAX;
 	va_start(ap, fmt);
-	ret = __vfprintf(&f, fmt, ap);
+	ret = __vfprintf_unlocked(&f, fmt, ap);
 	va_end(ap);
-	*f._p = '\0';
-	return (ret);
+	*f._p = 0;
+	return ret;
 }

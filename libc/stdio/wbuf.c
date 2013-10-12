@@ -1,4 +1,5 @@
-/*	$OpenBSD: wbuf.c,v 1.9 2005/08/08 08:05:36 espie Exp $ */
+/*	$NetBSD: wbuf.c,v 1.15 2012/03/15 18:22:31 christos Exp $	*/
+
 /*-
  * Copyright (c) 1990, 1993
  *	The Regents of the University of California.  All rights reserved.
@@ -31,8 +32,19 @@
  * SUCH DAMAGE.
  */
 
-#include <stdio.h>
+#include <sys/cdefs.h>
+#if defined(LIBC_SCCS) && !defined(lint)
+#if 0
+static char sccsid[] = "@(#)wbuf.c	8.1 (Berkeley) 6/4/93";
+#else
+__RCSID("$NetBSD: wbuf.c,v 1.15 2012/03/15 18:22:31 christos Exp $");
+#endif
+#endif /* LIBC_SCCS and not lint */
+
+#include <assert.h>
 #include <errno.h>
+#include <stdio.h>
+#include "reentrant.h"
 #include "local.h"
 
 /*
@@ -45,7 +57,10 @@ __swbuf(int c, FILE *fp)
 {
 	int n;
 
+	_DIAGASSERT(fp != NULL);
+
 	_SET_ORIENTATION(fp, -1);
+
 	/*
 	 * In case we cannot write, or longjmp takes us out early,
 	 * make sure _w is 0 (if fully- or un-buffered) or -_bf._size
@@ -56,7 +71,7 @@ __swbuf(int c, FILE *fp)
 	fp->_w = fp->_lbfsize;
 	if (cantwrite(fp)) {
 		errno = EBADF;
-		return (EOF);
+		return EOF;
 	}
 	c = (unsigned char)c;
 
@@ -65,20 +80,21 @@ __swbuf(int c, FILE *fp)
 	 * stuff c into the buffer.  If this causes the buffer to fill
 	 * completely, or if c is '\n' and the file is line buffered,
 	 * flush it (perhaps a second time).  The second flush will always
-	 * happen on unbuffered streams, where _bf._size==1; __sflush()
+	 * happen on unbuffered streams, where _bf._size==1; fflush()
 	 * guarantees that putc() will always call wbuf() by setting _w
 	 * to 0, so we need not do anything else.
 	 */
-	n = fp->_p - fp->_bf._base;
+	_DIAGASSERT(__type_fit(int, fp->_p - fp->_bf._base));
+	n = (int)(fp->_p - fp->_bf._base);
 	if (n >= fp->_bf._size) {
-		if (__sflush(fp))
-			return (EOF);
+		if (fflush(fp))
+			return EOF;
 		n = 0;
 	}
 	fp->_w--;
 	*fp->_p++ = c;
 	if (++n == fp->_bf._size || (fp->_flags & __SLBF && c == '\n'))
-		if (__sflush(fp))
-			return (EOF);
-	return (c);
+		if (fflush(fp))
+			return EOF;
+	return c;
 }

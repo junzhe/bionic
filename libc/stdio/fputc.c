@@ -1,4 +1,5 @@
-/*	$OpenBSD: fputc.c,v 1.7 2005/08/08 08:05:36 espie Exp $ */
+/*	$NetBSD: fputc.c,v 1.13 2012/03/15 18:22:30 christos Exp $	*/
+
 /*-
  * Copyright (c) 1990, 1993
  *	The Regents of the University of California.  All rights reserved.
@@ -31,11 +32,30 @@
  * SUCH DAMAGE.
  */
 
-#include <stdio.h>
+#include <sys/cdefs.h>
+#if defined(LIBC_SCCS) && !defined(lint)
+#if 0
+static char sccsid[] = "@(#)fputc.c	8.1 (Berkeley) 6/4/93";
+#else
+__RCSID("$NetBSD: fputc.c,v 1.13 2012/03/15 18:22:30 christos Exp $");
+#endif
+#endif /* LIBC_SCCS and not lint */
+
+#include <assert.h>
 #include <errno.h>
+#include <stdio.h>
+#include "reentrant.h"
+#include "local.h"
 
 int
 fputc(int c, FILE *fp)
 {
-	return (putc(c, fp));
+	int r;
+
+	_DIAGASSERT(fp != NULL);
+
+	FLOCKFILE(fp); 
+	r = __sputc(c, fp);
+	FUNLOCKFILE(fp);
+	return r;
 }

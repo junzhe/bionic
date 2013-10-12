@@ -1,4 +1,5 @@
-/*	$OpenBSD: ftell.c,v 1.6 2005/08/08 08:05:36 espie Exp $ */
+/*	$NetBSD: ftell.c,v 1.20 2012/03/27 15:05:42 christos Exp $	*/
+
 /*-
  * Copyright (c) 1990, 1993
  *	The Regents of the University of California.  All rights reserved.
@@ -31,36 +32,51 @@
  * SUCH DAMAGE.
  */
 
-#include <stdio.h>
+#include <sys/cdefs.h>
+#if defined(LIBC_SCCS) && !defined(lint)
+#if 0
+static char sccsid[] = "@(#)ftell.c	8.2 (Berkeley) 5/4/95";
+#else
+__RCSID("$NetBSD: ftell.c,v 1.20 2012/03/27 15:05:42 christos Exp $");
+#endif
+#endif /* LIBC_SCCS and not lint */
+
+#include <assert.h>
 #include <errno.h>
+#include <stdio.h>
+#include "reentrant.h"
 #include "local.h"
 
 /*
- * ftello: return current offset.
+ * ftell: return current offset.
  */
-off_t
-ftello(FILE *fp)
+long
+ftell(FILE *fp)
 {
-	fpos_t pos;
+	off_t pos;
+
+
+	FLOCKFILE(fp);
 
 	if (fp->_seek == NULL) {
+		FUNLOCKFILE(fp);
 		errno = ESPIPE;			/* historic practice */
-		pos = -1;
-                goto out;
+		return -1L;
 	}
 
 	/*
 	 * Find offset of underlying I/O object, then
 	 * adjust for buffered bytes.
 	 */
-        FLOCKFILE(fp);
-	__sflush(fp);		/* may adjust seek offset on append stream */
+	(void)__sflush(fp); /* may adjust seek offset on append stream */
 	if (fp->_flags & __SOFF)
 		pos = fp->_offset;
 	else {
-		pos = (*fp->_seek)(fp->_cookie, (fpos_t)0, SEEK_CUR);
-		if (pos == -1)
-			goto out;
+		pos = (*fp->_seek)(fp->_cookie, (off_t)0, SEEK_CUR);
+		if (pos == -1L) {
+			FUNLOCKFILE(fp);
+			return (long)pos;
+		}
 	}
 	if (fp->_flags & __SRD) {
 		/*
@@ -79,22 +95,12 @@ ftello(FILE *fp)
 		 */
 		pos += fp->_p - fp->_bf._base;
 	}
-out:	FUNLOCKFILE(fp);
-	return (pos);
-}
+	FUNLOCKFILE(fp);
 
-/*
- * ftell() returns a long and sizeof(off_t) != sizeof(long) on all arches
- */
-#if defined(__alpha__) && defined(__indr_reference)
-__indr_reference(ftello, ftell);
-#else
-long
-ftell(FILE *fp)
-{
-	long pos;
-
-	pos = (long)ftello(fp);
-	return(pos);
+	if (__long_overflow(pos)) {
+		errno = EOVERFLOW;
+		return -1L;
+	}
+		
+	return (long)pos;
 }
-#endif

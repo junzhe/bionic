@@ -1,5 +1,4 @@
-/*	$OpenBSD: fileext.h,v 1.2 2005/06/17 20:40:32 espie Exp $	*/
-/* $NetBSD: fileext.h,v 1.5 2003/07/18 21:46:41 nathanw Exp $ */
+/* $NetBSD: fileext.h,v 1.6 2010/01/11 20:39:29 joerg Exp $ */
 
 /*-
  * Copyright (c)2001 Citrus Project,
@@ -29,43 +28,47 @@
  * $Citrus$
  */
 
-#include <pthread.h>
-#include "wcio.h"
-
 /*
  * file extension
  */
 struct __sfileext {
 	struct	__sbuf _ub; /* ungetc buffer */
-	struct wchar_io_data _wcio;	/* wide char io status */
-	pthread_mutex_t _lock; /* file lock */
+	struct wchar_io_data _wcio;	/* wide char i/o status */
+	size_t _fgetstr_len;
+	char *_fgetstr_buf;
+#ifdef _REENTRANT
+	mutex_t	_lock;	/* Lock for FLOCKFILE/FUNLOCKFILE */
+	cond_t _lockcond; /* Condition variable for signalling lock releases */
+	thr_t _lockowner; /* The thread currently holding the lock */
+	int _lockcount; /* Count of recursive locks */
+	int _lockinternal; /* Flag of whether the lock is held inside stdio */
+	int _lockcancelstate; /* Stashed cancellation state on internal lock */
+#endif	
 };
 
-#define _FILEEXT_INITIALIZER  {{NULL,0},{0},PTHREAD_RECURSIVE_MUTEX_INITIALIZER}
-
-#define _EXT(fp) ((struct __sfileext *)((fp)->_ext._base))
+#define _EXT(fp) ((struct __sfileext *)(void *)((fp)->_ext._base))
 #define _UB(fp) _EXT(fp)->_ub
-#define _FLOCK(fp)  _EXT(fp)->_lock
-
-#define _FILEEXT_INIT(fp) \
-do { \
-	_UB(fp)._base = NULL; \
-	_UB(fp)._size = 0; \
-	WCIO_INIT(fp); \
-	_FLOCK_INIT(fp); \
-} while (0)
-
-/* Helper macros to avoid a function call when you know that fp is not NULL.
- * Notice that we keep _FLOCK_INIT() fast by slightly breaking our pthread
- * encapsulation.
- */
-#define _FLOCK_INIT(fp)    _FLOCK(fp).value = __PTHREAD_RECURSIVE_MUTEX_INIT_VALUE
-#define _FLOCK_LOCK(fp)    pthread_mutex_lock(&_FLOCK(fp))
-#define _FLOCK_TRYLOCK(fp) pthread_mutex_trylock(&_FLOCK(fp))
-#define _FLOCK_UNLOCK(fp)  pthread_mutex_unlock(&_FLOCK(fp))
-
-#define _FILEEXT_SETUP(f, fext) \
-do { \
-	(f)->_ext._base = (unsigned char *)(fext); \
-	_FILEEXT_INIT(f); \
-} while (0)
+#ifdef _REENTRANT
+#define _LOCK(fp) (_EXT(fp)->_lock)
+#define _LOCKCOND(fp) (_EXT(fp)->_lockcond)
+#define _LOCKOWNER(fp) (_EXT(fp)->_lockowner)
+#define _LOCKCOUNT(fp) (_EXT(fp)->_lockcount)
+#define _LOCKINTERNAL(fp) (_EXT(fp)->_lockinternal)
+#define _LOCKCANCELSTATE(fp) (_EXT(fp)->_lockcancelstate)
+#define _FILEEXT_SETUP(f, fext) do { \
+	/* LINTED */(f)->_ext._base = (unsigned char *)(fext); \
+	(fext)->_fgetstr_len = 0; \
+	(fext)->_fgetstr_buf = NULL; \
+	mutex_init(&_LOCK(f), NULL); \
+	cond_init(&_LOCKCOND(f), 0, NULL); \
+	_LOCKOWNER(f) = NULL; \
+	_LOCKCOUNT(f) = 0; \
+	_LOCKINTERNAL(f) = 0; \
+	} while (/* CONSTCOND */ 0)
+#else
+#define _FILEEXT_SETUP(f, fext) do { \
+	/* LINTED */(f)->_ext._base = (unsigned char *)(fext); \
+	(fext)->_fgetstr_len = 0; \
+	(fext)->_fgetstr_buf = NULL; \
+	} while (/* CONSTCOND */ 0)
+#endif
