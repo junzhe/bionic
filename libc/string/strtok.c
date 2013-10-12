@@ -1,6 +1,8 @@
+/*	$NetBSD: strtok.c,v 1.12 2004/10/27 19:12:31 dsl Exp $	*/
+
 /*
- * Copyright (c) 1988 Regents of the University of California.
- * All rights reserved.
+ * Copyright (c) 1988, 1993
+ *	The Regents of the University of California.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,60 +29,22 @@
  * SUCH DAMAGE.
  */
 
+#include <sys/cdefs.h>
+#if defined(LIBC_SCCS) && !defined(lint)
+#if 0
+static char sccsid[] = "@(#)strtok.c	8.1 (Berkeley) 6/4/93";
+#else
+__RCSID("$NetBSD: strtok.c,v 1.12 2004/10/27 19:12:31 dsl Exp $");
+#endif
+#endif /* LIBC_SCCS and not lint */
+
+#include <namespace.h>
 #include <string.h>
 
 char *
 strtok(char *s, const char *delim)
 {
-	static char *last;
+	static char *lasts;
 
-	return strtok_r(s, delim, &last);
-}
-
-char *
-strtok_r(char *s, const char *delim, char **last)
-{
-	char *spanp;
-	int c, sc;
-	char *tok;
-
-
-	if (s == NULL && (s = *last) == NULL)
-		return (NULL);
-
-	/*
-	 * Skip (span) leading delimiters (s += strspn(s, delim), sort of).
-	 */
-cont:
-	c = *s++;
-	for (spanp = (char *)delim; (sc = *spanp++) != 0;) {
-		if (c == sc)
-			goto cont;
-	}
-
-	if (c == 0) {		/* no non-delimiter characters */
-		*last = NULL;
-		return (NULL);
-	}
-	tok = s - 1;
-
-	/*
-	 * Scan token (scan for delimiters: s += strcspn(s, delim), sort of).
-	 * Note that delim must have one NUL; we stop if we see that, too.
-	 */
-	for (;;) {
-		c = *s++;
-		spanp = (char *)delim;
-		do {
-			if ((sc = *spanp++) == c) {
-				if (c == 0)
-					s = NULL;
-				else
-					s[-1] = 0;
-				*last = s;
-				return (tok);
-			}
-		} while (sc != 0);
-	}
-	/* NOTREACHED */
+	return strtok_r(s, delim, &lasts);
 }

@@ -1,7 +1,8 @@
-/*	$OpenBSD: strncat.c,v 1.5 2005/08/08 08:05:37 espie Exp $ */
+/*	$NetBSD: strncat.c,v 1.12 2012/06/25 22:32:46 abs Exp $	*/
+
 /*-
- * Copyright (c) 1990 The Regents of the University of California.
- * All rights reserved.
+ * Copyright (c) 1990, 1993
+ *	The Regents of the University of California.  All rights reserved.
  *
  * This code is derived from software contributed to Berkeley by
  * Chris Torek.
@@ -31,7 +32,21 @@
  * SUCH DAMAGE.
  */
 
+#include <sys/cdefs.h>
+#if defined(LIBC_SCCS) && !defined(lint)
+#if 0
+static char sccsid[] = "@(#)strncat.c	8.1 (Berkeley) 6/4/93";
+#else
+__RCSID("$NetBSD: strncat.c,v 1.12 2012/06/25 22:32:46 abs Exp $");
+#endif
+#endif /* LIBC_SCCS and not lint */
+
+#include <assert.h>
 #include <string.h>
+
+#ifdef _FORTIFY_SOURCE
+#undef strncat
+#endif
 
 /*
  * Concatenate src on the end of dst.  At most strlen(dst)+n+1 bytes
@@ -40,6 +55,10 @@
 char *
 strncat(char *dst, const char *src, size_t n)
 {
+
+	_DIAGASSERT(dst != NULL);
+	_DIAGASSERT(src != NULL);
+
 	if (n != 0) {
 		char *d = dst;
 		const char *s = src;

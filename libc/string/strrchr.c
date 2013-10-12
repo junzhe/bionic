@@ -1,7 +1,8 @@
-/*	$OpenBSD: rindex.c,v 1.6 2005/08/08 08:05:37 espie Exp $ */
+/*	$NetBSD: strrchr.c,v 1.5 2009/07/17 19:37:57 dsl Exp $	*/
+
 /*
- * Copyright (c) 1988 Regents of the University of California.
- * All rights reserved.
+ * Copyright (c) 1988, 1993
+ *	The Regents of the University of California.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,10 +29,38 @@
  * SUCH DAMAGE.
  */
 
-#include <string.h>
+#include <sys/cdefs.h>
+#if defined(LIBC_SCCS) && !defined(lint)
+#if 0
+static char sccsid[] = "@(#)rindex.c	8.1 (Berkeley) 6/4/93";
+#else
+__RCSID("$NetBSD: strrchr.c,v 1.5 2009/07/17 19:37:57 dsl Exp $");
+#endif
+#endif /* LIBC_SCCS and not lint */
 
+#if !defined(_KERNEL) && !defined(_STANDALONE)
+#include <assert.h>
+#include <string.h>
+#else
+#include <lib/libkern/libkern.h>
+#endif
+
+__strong_alias(rindex, strrchr)
 char *
 strrchr(const char *p, int ch)
 {
-	return __strrchr_chk(p, ch, __BIONIC_FORTIFY_UNKNOWN_SIZE);
+	char *save;
+	const char c = ch;
+
+	_DIAGASSERT(p != NULL);
+
+	for (save = NULL;; ++p) {
+		if (*p == c) {
+			/* LINTED const cast-away */
+			save = __UNCONST(p);
+		}
+		if (!*p)
+			return(save);
+	}
+	/* NOTREACHED */
 }

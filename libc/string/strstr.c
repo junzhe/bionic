@@ -1,7 +1,8 @@
-/*	$OpenBSD: strstr.c,v 1.5 2005/08/08 08:05:37 espie Exp $ */
+/*	$NetBSD: strstr.c,v 1.2 2007/06/04 18:19:28 christos Exp $	*/
+
 /*-
- * Copyright (c) 1990 The Regents of the University of California.
- * All rights reserved.
+ * Copyright (c) 1990, 1993
+ *	The Regents of the University of California.  All rights reserved.
  *
  * This code is derived from software contributed to Berkeley by
  * Chris Torek.
@@ -31,7 +32,22 @@
  * SUCH DAMAGE.
  */
 
+#include <sys/cdefs.h>
+#if defined(LIBC_SCCS) && !defined(lint)
+#if 0
+static char sccsid[] = "@(#)strstr.c	8.1 (Berkeley) 6/4/93";
+#else
+__RCSID("$NetBSD: strstr.c,v 1.2 2007/06/04 18:19:28 christos Exp $");
+#endif
+#endif /* LIBC_SCCS and not lint */
+
+#if !defined(_KERNEL) && !defined(_STANDALONE)
+#include <assert.h>
 #include <string.h>
+#else
+#include <sys/param.h>
+#include <lib/libkern/libkern.h>
+#endif
 
 /*
  * Find the first occurrence of find in s.
@@ -41,6 +57,9 @@ strstr(const char *s, const char *find)
 {
 	char c, sc;
 	size_t len;
+
+	_DIAGASSERT(s != NULL);
+	_DIAGASSERT(find != NULL);
 
 	if ((c = *find++) != 0) {
 		len = strlen(find);
@@ -52,5 +71,5 @@ strstr(const char *s, const char *find)
 		} while (strncmp(s, find, len) != 0);
 		s--;
 	}
-	return ((char *)s);
+	return __UNCONST(s);
 }

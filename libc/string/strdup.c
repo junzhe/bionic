@@ -1,4 +1,4 @@
-/*	$OpenBSD: strdup.c,v 1.6 2005/08/08 08:05:37 espie Exp $	*/
+/*	$NetBSD: strdup.c,v 1.14 2012/06/25 22:32:46 abs Exp $	*/
 
 /*
  * Copyright (c) 1988, 1993
@@ -29,21 +29,37 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/types.h>
+#include <sys/cdefs.h>
+#if defined(LIBC_SCCS) && !defined(lint)
+#if 0
+static char sccsid[] = "@(#)strdup.c	8.1 (Berkeley) 6/4/93";
+#else
+__RCSID("$NetBSD: strdup.c,v 1.14 2012/06/25 22:32:46 abs Exp $");
+#endif
+#endif /* LIBC_SCCS and not lint */
 
-#include <stddef.h>
+#include "namespace.h"
+
+#include <assert.h>
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifdef __weak_alias
+__weak_alias(strdup,_strdup)
+#endif
 
 char *
 strdup(const char *str)
 {
-	size_t siz;
+	size_t len;
 	char *copy;
 
-	siz = strlen(str) + 1;
-	if ((copy = malloc(siz)) == NULL)
-		return(NULL);
-	(void)memcpy(copy, str, siz);
-	return(copy);
+	_DIAGASSERT(str != NULL);
+
+	len = strlen(str) + 1;
+	if (!(copy = malloc(len)))
+		return (NULL);
+	memcpy(copy, str, len);
+	return (copy);
 }
