@@ -1,3 +1,5 @@
+/*	$NetBSD: asctime.c,v 1.15 2012/06/25 22:32:46 abs Exp $	*/
+
 /*
 ** This file is in the public domain, so clarified as of
 ** 1996-06-05 by Arthur David Olson.
@@ -9,10 +11,24 @@
 ** whereas the output of asctime is supposed to be constant.
 */
 
+#include <sys/cdefs.h>
+#if defined(LIBC_SCCS) && !defined(lint)
+#if 0
+static char	elsieid[] = "@(#)asctime.c	8.5";
+#else
+__RCSID("$NetBSD: asctime.c,v 1.15 2012/06/25 22:32:46 abs Exp $");
+#endif
+#endif /* LIBC_SCCS and not lint */
+
 /*LINTLIBRARY*/
 
+#include "namespace.h"
 #include "private.h"
 #include "tzfile.h"
+
+#ifdef __weak_alias
+__weak_alias(asctime_r,_asctime_r)
+#endif
 
 /*
 ** Some systems only handle "%.2d"; others only handle "%02d";
@@ -68,13 +84,22 @@ static char	buf_asctime[MAX_ASCTIME_BUF_SIZE];
 ** A la ISO/IEC 9945-1, ANSI/IEEE Std 1003.1, 2004 Edition.
 */
 
+/*
+** Big enough for something such as
+** ??? ???-2147483648 -2147483648:-2147483648:-2147483648 -2147483648\n
+** (two three-character abbreviations, five strings denoting integers,
+** three explicit spaces, two explicit colons, a newline,
+** and a trailing ASCII nul).
+*/
+#define	ASCTIME_BUFLEN	(3 * 2 + 5 * INT_STRLEN_MAXIMUM(int) + 3 + 2 + 1 + 1)
+
 char *
-asctime_r(register const struct tm *timeptr, char *buf)
+asctime_r(const struct tm * timeptr, char * buf)
 {
-	static const char	wday_name[][3] = {
+	static const char	*wday_name[7] = {
 		"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"
 	};
-	static const char	mon_name[][3] = {
+	static const char	*mon_name[12] = {
 		"Jan", "Feb", "Mar", "Apr", "May", "Jun",
 		"Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
 	};
@@ -100,10 +125,8 @@ asctime_r(register const struct tm *timeptr, char *buf)
 	** (e.g., timeptr->tm_mday) when processing "%Y".
 	*/
 	(void) strftime(year, sizeof year, "%Y", timeptr);
-	/*
-	** We avoid using snprintf since it's not available on all systems.
-	*/
-	(void) sprintf(result,
+	(void) snprintf(result,
+		sizeof(result),
 		((strlen(year) <= 4) ? ASCTIME_FMT : ASCTIME_FMT_B),
 		wn, mn,
 		timeptr->tm_mday, timeptr->tm_hour,
@@ -126,7 +149,7 @@ asctime_r(register const struct tm *timeptr, char *buf)
 */
 
 char *
-asctime(register const struct tm *timeptr)
+asctime(const struct tm *timeptr)
 {
 	return asctime_r(timeptr, buf_asctime);
 }

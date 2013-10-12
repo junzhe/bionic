@@ -1,5 +1,6 @@
-#ifndef TZFILE_H
+/*	$NetBSD: tzfile.h,v 1.10 2012/08/09 12:38:25 christos Exp $	*/
 
+#ifndef TZFILE_H
 #define TZFILE_H
 
 /*
@@ -19,12 +20,12 @@
 ** Information about time zone files.
 */
 
-#ifndef TZDIR
-#define TZDIR	"/usr/local/etc/zoneinfo" /* Time zone object file directory */
+#ifndef TZDIR		/* Time zone object file directory */
+#define TZDIR		"/usr/share/zoneinfo"
 #endif /* !defined TZDIR */
 
 #ifndef TZDEFAULT
-#define TZDEFAULT	"localtime"
+#define TZDEFAULT	"/etc/localtime"
 #endif /* !defined TZDEFAULT */
 
 #ifndef TZDEFRULES
@@ -122,7 +123,7 @@ struct tzhead {
 #define DAYSPERNYEAR	365
 #define DAYSPERLYEAR	366
 #define SECSPERHOUR	(SECSPERMIN * MINSPERHOUR)
-#define SECSPERDAY	((int_fast32_t) SECSPERHOUR * HOURSPERDAY)
+#define SECSPERDAY	((long) SECSPERHOUR * HOURSPERDAY)
 #define MONSPERYEAR	12
 
 #define TM_SUNDAY	0
