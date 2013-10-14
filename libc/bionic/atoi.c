@@ -26,7 +26,6 @@
  * SUCH DAMAGE.
  */
 #include <sys/cdefs.h>
-#include "namespace.h"
 #if defined(LIBC_SCCS) && !defined(lint)
 #if 0
 static char sccsid[] = "@(#)atoi.c      8.1 (Berkeley) 6/4/93";
@@ -37,6 +36,7 @@ __RCSID("$NetBSD: atoi.c,v 1.12 2012/06/25 22:32:45 abs Exp $");
 
 #include <assert.h>
 #include <stdlib.h>
+#include <inttypes.h>
 
 int  atoi(const char*  s)
 {
