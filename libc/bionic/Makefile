@@ -10,7 +10,7 @@ CFLAGS+=      -I${.CURDIR}/../include -I${.CURDIR}/.. -I${.CURDIR}/../arch-x86/i
 CFLAGS+=      -I${.CURDIR}/../arch/${ARCHSUBDIR} -I${.CURDIR}/../arch-x86/include/ -I${.CURDIR}/../private
 
 INCS=   
-SRCS=  abort.cpp 
+SRCS=  abort.c 
 
 INCSDIR= /usr/include
 
