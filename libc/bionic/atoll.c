@@ -25,6 +25,17 @@
  * OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
+#include <sys/cdefs.h>
+#if defined(LIBC_SCCS) && !defined(lint)
+#if 0
+static char sccsid[] = "@(#)atoll.c      8.1 (Berkeley) 6/4/93";
+#else
+__RCSID("$NetBSD: atoll.c,v 1.12 2012/06/25 22:32:45 abs Exp $");
+#endif
+#endif /* LIBC_SCCS and not lint */
+
+#include <assert.h>
+#include <stdlib.h>
 #include <inttypes.h>
 
 long long atoll(const char*  s)
