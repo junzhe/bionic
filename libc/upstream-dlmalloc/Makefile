@@ -1,7 +1,7 @@
 # LSC For now
 NOGCCERROR:= yes
 
-LIB=    unistd
+LIB=    dlmalloc
 
 CPPFLAGS+=      -I${.CURDIR}/../include -I${.CURDIR}/.. -I${.CURDIR}/../arch-x86/include/
 CPPFLAGS+=      -I${.CURDIR}/../arch/${ARCHSUBDIR} -I${.CURDIR}/../arch-x86/include/
