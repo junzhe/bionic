@@ -9,8 +9,8 @@ CPPFLAGS+=      -I${.CURDIR}/../arch/${ARCHSUBDIR} -I${.CURDIR}/../arch-x86/incl
 CFLAGS+=      -I${.CURDIR}/../include -I${.CURDIR}/.. -I${.CURDIR}/../arch-x86/include/ -I${.CURDIR}/../private
 CFLAGS+=      -I${.CURDIR}/../arch/${ARCHSUBDIR} -I${.CURDIR}/../arch-x86/include/ -I${.CURDIR}/../private
 
-INCS=   
-SRCS=  abort.c arc4random.c assert.c atoi.c atol.c atoll.c bindresvport.c brk.c clearenv.c cpuacct.c daemon.c
+INCS=  dlmalloc.h 
+SRCS=  abort.c arc4random.c assert.c atoi.c atol.c atoll.c bindresvport.c brk.c clearenv.c cpuacct.c daemon.c dlmalloc.c
 
 INCSDIR= /usr/include
 
