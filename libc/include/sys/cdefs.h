@@ -432,6 +432,16 @@
 #define	__predict_false(exp)	(exp)
 #endif
 
+#if __GNUC_PREREQ__(2, 96)
+#define __noreturn    __attribute__((__noreturn__))
+#define __mallocfunc  __attribute__((malloc))
+#define __purefunc    __attribute__((pure))
+#else
+#define __noreturn
+#define __mallocfunc
+#define __purefunc
+#endif
+
 /*
  * Compiler-dependent macros to declare that functions take printf-like
  * or scanf-like arguments.  They are null except for versions of gcc
