@@ -17,7 +17,7 @@
 #include "dlmalloc.h"
 
 #include "private/libc_logging.h"
-
+#include <sys/mman.h>
 // Send dlmalloc errors to the log.
 static void __bionic_heap_corruption_error(const char* function);
 static void __bionic_heap_usage_error(const char* function, void* address);
