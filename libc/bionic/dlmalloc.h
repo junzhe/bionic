@@ -29,6 +29,8 @@
 #define USE_SPIN_LOCKS 0
 #define DEFAULT_MMAP_THRESHOLD (64U * 1024U)
 
+#include <sys/mman.h>
+
 /* Include the proper definitions. */
 #include "../upstream-dlmalloc/malloc.h"
 
