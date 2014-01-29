@@ -3,5 +3,6 @@ NOGCCERROR:= yes
 
 PROG = hello
 SRCS=   hello.cpp
+MAN=
 
 .include <bsd.prog.mk>
